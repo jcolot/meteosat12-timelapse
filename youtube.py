@@ -48,8 +48,11 @@ def channel(tok):
     """Title and handle of the channel this access token uploads to."""
     req = urllib.request.Request("https://www.googleapis.com/youtube/v3/channels?part=snippet&mine=true",
                                  headers={"Authorization": "Bearer " + tok})
-    with urllib.request.urlopen(req, timeout=60) as r:
-        items = json.load(r).get("items", [])
+    try:
+        with urllib.request.urlopen(req, timeout=60) as r:
+            items = json.load(r).get("items", [])
+    except urllib.error.HTTPError as e:
+        return f"(unknown: HTTP {e.code} {e.read()[:400].decode(errors='replace')})"
     if not items:
         return "(no channel)"
     sn = items[0]["snippet"]
