@@ -17,7 +17,8 @@ import argparse, http.server, json, os, secrets, subprocess, sys, time, urllib.e
 import urllib.request, webbrowser
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-SCOPE = "https://www.googleapis.com/auth/youtube.upload"
+# upload, plus read-only to name the channel the token belongs to
+SCOPE = "https://www.googleapis.com/auth/youtube.upload https://www.googleapis.com/auth/youtube.readonly"
 AUTH = "https://accounts.google.com/o/oauth2/v2/auth"
 TOKEN = "https://oauth2.googleapis.com/token"
 UPLOAD = "https://www.googleapis.com/upload/youtube/v3/videos?uploadType=resumable&part=snippet,status"
@@ -41,6 +42,18 @@ def post_form(url, data):
     req = urllib.request.Request(url, urllib.parse.urlencode(data).encode())
     with urllib.request.urlopen(req, timeout=60) as r:
         return json.load(r)
+
+
+def channel(tok):
+    """Title and handle of the channel this access token uploads to."""
+    req = urllib.request.Request("https://www.googleapis.com/youtube/v3/channels?part=snippet&mine=true",
+                                 headers={"Authorization": "Bearer " + tok})
+    with urllib.request.urlopen(req, timeout=60) as r:
+        items = json.load(r).get("items", [])
+    if not items:
+        return "(no channel)"
+    sn = items[0]["snippet"]
+    return f"{sn['title']} ({sn.get('customUrl', '?')})"
 
 
 def auth(a):
@@ -74,6 +87,9 @@ def auth(a):
                                 redirect_uri=redirect, grant_type="authorization_code"))
     if "refresh_token" not in tok:
         sys.exit("no refresh token returned")
+    name = channel(tok["access_token"])
+    if input(f"Token for channel {name}. Store it? [y/N] ").strip().lower() != "y":
+        sys.exit("not stored")
     subprocess.run(["gh", "secret", "set", "YOUTUBE_REFRESH_TOKEN"], input=tok["refresh_token"].encode(),
                    check=True, cwd=HERE)
     print("Stored YOUTUBE_REFRESH_TOKEN as a repository secret.")
@@ -87,6 +103,7 @@ def access_token():
 
 def upload(a):
     tok = access_token()
+    print("channel:", channel(tok), flush=True)
     size = os.path.getsize(a.file)
     meta = dict(snippet=dict(title=a.title[:100], categoryId="28",          # Science & Technology
                              description=open(a.description_file).read()[:4900] if a.description_file else "",
