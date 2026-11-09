@@ -124,14 +124,14 @@ def raw(a):
     os.makedirs(tmp, exist_ok=True)
     t0 = dt.datetime.combine(day, dt.time())
     slots = [t0 + dt.timedelta(minutes=10 * i) for i in range(SLOTS) if i % a.shards == a.shard]
+    built, failed = 0, []
     for k, t in enumerate(slots):
         name = t.strftime("%Y%m%d_%H%M") + ".jpg"
         if all(os.path.exists(os.path.join(wd, sub, name)) for sub in LAYERS):
             continue
         for attempt in range(3):
             try:
-                if time.time() - tok_t > 1800:               # tokens last ~1 h
-                                ids = [p for p in datastore.search(datastore.FDHSI, t.strftime("%Y-%m-%dT%H:%M:00Z"),
+                ids = [p for p in datastore.search(datastore.FDHSI, t.strftime("%Y-%m-%dT%H:%M:00Z"),
                                                    (t + dt.timedelta(minutes=9, seconds=59)).strftime("%Y-%m-%dT%H:%M:%SZ"))
                        if fci_frame.slot_time(p + ".zip") == t]
                 if not ids:
@@ -143,6 +143,7 @@ def raw(a):
                 fci_frame.build(z, wd)
                 print(f"{name}: ok ({k + 1}/{len(slots)}, download {t2 - t1:.0f} s, build {time.time() - t2:.0f} s)",
                       flush=True)
+                built += 1
                 break
             except Exception as e:                            # noqa: BLE001  (one slot must not stop the shard)
                 print(f"{name}: attempt {attempt + 1} failed: {e}", flush=True)
@@ -152,6 +153,11 @@ def raw(a):
                     p = os.path.join(tmp, f)
                     (os.remove if os.path.isfile(p) else __import__("shutil").rmtree)(p)
                 time.sleep(20 * (attempt + 1))
+            else:
+                failed.append(name)
+    print(f"shard {a.shard}/{a.shards}: {built} built, {len(failed)} failed {failed}", flush=True)
+    if failed and not built:                                  # nothing at all: make the job fail
+        sys.exit(f"shard {a.shard}: every slot failed")
 
 
 def gather(a):
