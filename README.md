@@ -45,16 +45,38 @@ uv run interpolate.py frames_$D --mask MASK.png --canvas 3840x2160 --sky-strengt
 Earth disc. Rendering runs in chunks (`<out>.parts/`): stop it any time and rerun the
 same command to resume. Add `--device mps` on Apple silicon (about 3× faster).
 
-### From raw satellite data (experimental)
+### From raw satellite data (the nightly default)
 
-The EUMETSAT Data Store has the raw FCI Level 1c images (about 1 GB per 10 min).
-With `KEY` and `SECRET` from [api.eumetsat.int](https://api.eumetsat.int/api-key/) in
-`.env`:
+The frames can instead be built from the raw FCI Level 1c images in the EUMETSAT
+Data Store (about 1 GB per 10 min), with no dependence on EUMETView:
+`raw/fci_frame.py` makes the three layers the renderer uses: true colour by day
+(satpy), a GeoColour-like night side (infrared clouds over a static night
+background and city lights, `assets/`), the fog / low-cloud RGB and 10.5 µm infrared,
+on the same grid and grey scales as EUMETView's (fitted against them).
+
+Credentials: `KEY` and `SECRET` from [api.eumetsat.int](https://api.eumetsat.int/api-key/)
+in `.env` (or `EUMETSAT_KEY` / `EUMETSAT_SECRET` in the environment).
 
 ```bash
-uv run datastore.py EO:EUM:DAT:0662 2026-11-08T12:00:00Z 2026-11-08T12:09:00Z data/raw_fci
-uv run --extra raw raw/fci_frame.py data/raw_fci/<product>.zip true_color frame.png
+# one shard of a day's slots (here all of them), then merge, fill gaps, status
+uv run --extra raw daily.py raw --date 2026-11-08 --shard 0 --shards 1
+uv run daily.py gather --date 2026-11-08
+uv run daily.py render --cut full --date 2026-11-08 --device mps
 ```
+
+## Nightly on GitHub Actions
+
+`.github/workflows/daily.yml` renders yesterday at 02:30 UTC and publishes both videos
+as a release tagged with the date. The raw slots are split over 8 parallel jobs
+(download, build frames, delete, about 18 slots each), then merged, rendered (60 s
+and 20 s in parallel) and released. It needs two repository secrets:
+
+```bash
+grep '^KEY=' .env | cut -d= -f2- | gh secret set EUMETSAT_KEY
+grep '^SECRET=' .env | cut -d= -f2- | gh secret set EUMETSAT_SECRET
+```
+
+Run it by hand for any day from the Actions tab (source `raw` or `eumetview`).
 
 ## How it works
 
@@ -82,5 +104,7 @@ On-screen and in the video metadata:
 - Moon and planets: NASA/JPL DE421.
 - Milky Way: NASA Scientific Visualization Studio, *Deep Star Maps 2020*.
 - Zodiacal light: Leinert et al. 1998, A&AS 127, 1.
+- `assets/citylights.png`, `assets/night_background.jpg`: derived from EUMETView
+  GeoColour night frames (EUMETSAT, CC BY 4.0).
 
 Code: MIT, see [LICENSE](LICENSE).

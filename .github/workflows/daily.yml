@@ -1,15 +1,25 @@
 name: daily
 
-# Every night: yesterday's Meteosat-12 frames -> 60 s and 20 s 4K videos,
+# Every night: yesterday's Meteosat-12 day -> 60 s and 20 s 4K videos,
 # published as a GitHub Release tagged with the date.
+#
+# Frames come from raw FCI Level 1c data (EUMETSAT Data Store; secrets
+# EUMETSAT_KEY and EUMETSAT_SECRET), split over parallel shards so each job
+# stays well inside the 6 h limit and its ~14 GB disk (each 1 GB product is
+# deleted once turned into frames). EUMETView remains available as a source.
 on:
   schedule:
-    - cron: "30 2 * * *"          # 02:30 UTC, after the day's last frame is out
+    - cron: "30 2 * * *"          # 02:30 UTC, after the day's last slot is archived
   workflow_dispatch:
     inputs:
       date:
         description: "Day to render, YYYY-MM-DD (default: yesterday, UTC)"
         required: false
+      source:
+        description: "Frame source"
+        type: choice
+        options: [raw, eumetview]
+        default: raw
 
 permissions:
   contents: write                 # create the release
@@ -19,17 +29,33 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  download:
+  plan:
     runs-on: ubuntu-latest
-    timeout-minutes: 350
     outputs:
-      day: ${{ steps.day.outputs.day }}
+      day: ${{ steps.p.outputs.day }}
+      source: ${{ steps.p.outputs.source }}
     steps:
-      - uses: actions/checkout@v4
-      - id: day
+      - id: p
         run: |
           d="${{ inputs.date }}"
+          s="${{ inputs.source }}"
           echo "day=${d:-$(date -u -d yesterday +%F)}" >> "$GITHUB_OUTPUT"
+          echo "source=${s:-raw}" >> "$GITHUB_OUTPUT"
+
+  frames-raw:
+    needs: plan
+    if: needs.plan.outputs.source == 'raw'
+    runs-on: ubuntu-latest
+    timeout-minutes: 340
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5, 6, 7]
+    env:
+      EUMETSAT_KEY: ${{ secrets.EUMETSAT_KEY }}
+      EUMETSAT_SECRET: ${{ secrets.EUMETSAT_SECRET }}
+    steps:
+      - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
       - uses: actions/cache@v4
         with:
@@ -37,10 +63,58 @@ jobs:
             data/hip.tsv
             data/de421.bsp
             data/milkyway_2020_8k.exr
-            data/mask.png
-          key: static-v1
+          key: static-v2
+      - run: uv sync --extra raw && uv run fetch_data.py
+      - run: uv run daily.py raw --date ${{ needs.plan.outputs.day }} --shard ${{ matrix.shard }} --shards 8
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: frames-part-${{ matrix.shard }}
+          path: work/
+          retention-days: 2
+
+  frames-eumetview:
+    needs: plan
+    if: needs.plan.outputs.source == 'eumetview'
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - uses: actions/cache@v4
+        with:
+          path: |
+            data/hip.tsv
+            data/de421.bsp
+            data/milkyway_2020_8k.exr
+          key: static-v2
       - run: uv sync && uv run fetch_data.py
-      - run: uv run daily.py download --date ${{ steps.day.outputs.day }} --budget-min 320
+      - run: uv run daily.py download --date ${{ needs.plan.outputs.day }} --budget-min 320
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: frames-part-eumetview
+          path: work/
+          retention-days: 2
+
+  gather:
+    needs: [plan, frames-raw, frames-eumetview]
+    if: ${{ !cancelled() && (needs.frames-raw.result != 'skipped' || needs.frames-eumetview.result != 'skipped') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: frames-part-*
+          merge-multiple: true
+          path: work
+      - run: uv sync
+      - run: |
+          if [ "${{ needs.plan.outputs.source }}" = raw ]; then
+            uv run daily.py gather --date ${{ needs.plan.outputs.day }}
+          fi
+          test -f work/$(echo ${{ needs.plan.outputs.day }} | tr -d -)/status.json
       - uses: actions/upload-artifact@v4
         with:
           name: frames
@@ -50,7 +124,7 @@ jobs:
           retention-days: 3
 
   render:
-    needs: download
+    needs: [plan, gather]
     runs-on: ubuntu-latest
     timeout-minutes: 350
     strategy:
@@ -67,13 +141,12 @@ jobs:
             data/hip.tsv
             data/de421.bsp
             data/milkyway_2020_8k.exr
-            data/mask.png
-          key: static-v1
+          key: static-v2
       - uses: actions/download-artifact@v4
         with:
           name: frames
       - run: uv sync && uv run fetch_data.py
-      - run: uv run daily.py render --cut ${{ matrix.cut }} --date ${{ needs.download.outputs.day }} --workers 3
+      - run: uv run daily.py render --cut ${{ matrix.cut }} --date ${{ needs.plan.outputs.day }} --workers 3
       - uses: actions/upload-artifact@v4
         with:
           name: video-${{ matrix.cut }}
@@ -81,7 +154,7 @@ jobs:
           retention-days: 3
 
   release:
-    needs: [download, render]
+    needs: [plan, render]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -95,5 +168,5 @@ jobs:
           gh release create "$DAY" artifacts/video-*/*.mp4 \
             --title "Earth from Meteosat-12, $DAY" --notes-file notes.md
         env:
-          DAY: ${{ needs.download.outputs.day }}
+          DAY: ${{ needs.plan.outputs.day }}
           GH_TOKEN: ${{ github.token }}

@@ -3,12 +3,23 @@
 import base64, json, os, sys, time, urllib.parse, urllib.request
 
 API = "https://api.eumetsat.int"
+FDHSI = "EO:EUM:DAT:0662"        # FCI Level 1c normal resolution, full disc, 0 deg
+LFL = "EO:EUM:DAT:0691"          # LI Level 2 lightning flashes
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 
-def token():
+def credentials():
+    """EUMETSAT_KEY / EUMETSAT_SECRET from the environment (CI secrets),
+    else KEY / SECRET from .env next to this file."""
+    if os.environ.get("EUMETSAT_KEY") and os.environ.get("EUMETSAT_SECRET"):
+        return os.environ["EUMETSAT_KEY"], os.environ["EUMETSAT_SECRET"]
     env = dict(l.strip().split("=", 1) for l in open(os.path.join(HERE, ".env")) if "=" in l and not l.startswith("#"))
-    auth = base64.b64encode(f"{env['KEY']}:{env['SECRET']}".encode()).decode()
+    return env["KEY"], env["SECRET"]
+
+
+def token():
+    key, secret = credentials()
+    auth = base64.b64encode(f"{key}:{secret}".encode()).decode()
     req = urllib.request.Request(API + "/token", data=b"grant_type=client_credentials",
                                  headers={"Authorization": "Basic " + auth,
                                           "Content-Type": "application/x-www-form-urlencoded"})

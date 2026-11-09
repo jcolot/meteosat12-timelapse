@@ -71,6 +71,14 @@ def load_normals():
     return n
 
 
+def night_weight_band(sun_dir, lo, hi):
+    """0 by day .. 1 at night across solar zenith lo..hi (deg), per pixel of
+    the frame; sun_dir: unit vector to the Sun, Earth-fixed axes."""
+    n = np.nan_to_num(load_normals())
+    cz = np.einsum("kij,k->ij", n, np.asarray(sun_dir, np.float32))
+    return smoothstep(np.degrees(np.arccos(np.clip(cz, -1, 1))), lo, hi).astype(np.float32)
+
+
 def smoothstep(x, lo, hi):
     t = np.clip((x - lo) / (hi - lo), 0, 1)
     return t * t * (3 - 2 * t)
