@@ -170,9 +170,6 @@ jobs:
     env:
       DAY: ${{ needs.plan.outputs.day }}
       GH_TOKEN: ${{ github.token }}
-      YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
-      YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
-      YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
@@ -194,19 +191,15 @@ jobs:
           gh release create "$DAY" videos/*.mp4 \
             --title "Earth from Meteosat-12, $DAY" --notes-file notes.md \
             || gh release upload "$DAY" videos/*.mp4 --clobber
-      - name: YouTube
-        if: env.YOUTUBE_REFRESH_TOKEN != ''
-        run: |
-          when=$(date -u -d "$DAY" '+%-d %B %Y')
-          { cat notes.md; echo; echo "Videos and source: https://github.com/${{ github.repository }}/releases/tag/$DAY"; } \
-            | sed 's/`//g; s/\*\*//g' > yt.txt
-          tags="Meteosat-12,MTG,EUMETSAT,Earth,timelapse,satellite,stars"
-          privacy="${{ vars.YOUTUBE_PRIVACY || 'public' }}"
-          uv run youtube.py upload videos/earth_${DAY}_4k.mp4 --privacy "$privacy" \
-            --title "Earth from Meteosat-12 with the real sky, $when (4K)" --description-file yt.txt --tags "$tags"
-          uv run youtube.py upload videos/earth_${DAY}_4k_15s_vertical.mp4 --privacy "$privacy" \
-            --title "A day of Earth from space, $when #Shorts" --description-file yt.txt --tags "$tags"
       - name: Delete this run's intermediate artifacts (frames, videos)
         run: |
           gh api --paginate repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts \
             --jq '.artifacts[].id' | xargs -r -I{} gh api -X DELETE repos/${{ github.repository }}/actions/artifacts/{}
+
+  youtube:
+    needs: [plan, release]
+    if: ${{ !cancelled() && needs.release.result == 'success' }}
+    uses: ./.github/workflows/youtube.yml
+    with:
+      date: ${{ needs.plan.outputs.day }}
+    secrets: inherit

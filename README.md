@@ -84,7 +84,8 @@ only the render and release, pass the run ID of an earlier run as `frames_from_r
 
 ### YouTube
 
-If the secrets below exist, the release job also uploads both videos to YouTube
+If the secrets below exist, the nightly run then uploads both videos to YouTube
+(`.github/workflows/youtube.yml`, also runnable by hand for any released day)
 (the 15 s portrait one as a Short); privacy comes from the repository variable
 `YOUTUBE_PRIVACY` (default `public`).
 
