@@ -124,7 +124,6 @@ def raw(a):
     os.makedirs(tmp, exist_ok=True)
     t0 = dt.datetime.combine(day, dt.time())
     slots = [t0 + dt.timedelta(minutes=10 * i) for i in range(SLOTS) if i % a.shards == a.shard]
-    tok, tok_t = datastore.token(), time.time()
     for k, t in enumerate(slots):
         name = t.strftime("%Y%m%d_%H%M") + ".jpg"
         if all(os.path.exists(os.path.join(wd, sub, name)) for sub in LAYERS):
@@ -132,15 +131,14 @@ def raw(a):
         for attempt in range(3):
             try:
                 if time.time() - tok_t > 1800:               # tokens last ~1 h
-                    tok, tok_t = datastore.token(), time.time()
-                ids = [p for p in datastore.search(datastore.FDHSI, t.strftime("%Y-%m-%dT%H:%M:00Z"),
+                                ids = [p for p in datastore.search(datastore.FDHSI, t.strftime("%Y-%m-%dT%H:%M:00Z"),
                                                    (t + dt.timedelta(minutes=9, seconds=59)).strftime("%Y-%m-%dT%H:%M:%SZ"))
                        if fci_frame.slot_time(p + ".zip") == t]
                 if not ids:
                     print(f"{name}: no product", flush=True)
                     break
                 t1 = time.time()
-                z = datastore.download(datastore.FDHSI, ids[0], tmp, tok)
+                z = datastore.download(datastore.FDHSI, ids[0], tmp, datastore.token())
                 t2 = time.time()
                 fci_frame.build(z, wd)
                 print(f"{name}: ok ({k + 1}/{len(slots)}, download {t2 - t1:.0f} s, build {time.time() - t2:.0f} s)",
@@ -148,6 +146,8 @@ def raw(a):
                 break
             except Exception as e:                            # noqa: BLE001  (one slot must not stop the shard)
                 print(f"{name}: attempt {attempt + 1} failed: {e}", flush=True)
+                if "401" in str(e):
+                    datastore.token(force=True)
                 for f in os.listdir(tmp):
                     p = os.path.join(tmp, f)
                     (os.remove if os.path.isfile(p) else __import__("shutil").rmtree)(p)

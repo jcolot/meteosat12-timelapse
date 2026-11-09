@@ -17,13 +17,26 @@ def credentials():
     return env["KEY"], env["SECRET"]
 
 
-def token():
+_TOKEN = {"value": None, "expires": 0.0}
+
+
+def token(force=False):
+    """Bearer token, renewed 5 min before it expires. The API hands every
+    client of a key the same token with whatever lifetime it has left, so
+    the real expiry must come from the response, not from when we asked."""
+    if not force and _TOKEN["value"] and time.time() < _TOKEN["expires"] - 300:
+        return _TOKEN["value"]
     key, secret = credentials()
     auth = base64.b64encode(f"{key}:{secret}".encode()).decode()
     req = urllib.request.Request(API + "/token", data=b"grant_type=client_credentials",
                                  headers={"Authorization": "Basic " + auth,
                                           "Content-Type": "application/x-www-form-urlencoded"})
-    return json.load(urllib.request.urlopen(req, timeout=60))["access_token"]
+    r = json.load(urllib.request.urlopen(req, timeout=60))
+    if r.get("expires_in", 0) < 400:          # about to expire: wait it out, get the next one
+        time.sleep(max(0, r.get("expires_in", 0)) + 5)
+        r = json.load(urllib.request.urlopen(req, timeout=60))
+    _TOKEN.update(value=r["access_token"], expires=time.time() + r.get("expires_in", 600))
+    return _TOKEN["value"]
 
 
 def search(coll, start, end, n=500):

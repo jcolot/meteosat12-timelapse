@@ -50,7 +50,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [0, 1, 2, 3, 4, 5, 6, 7]
+        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
     env:
       EUMETSAT_KEY: ${{ secrets.EUMETSAT_KEY }}
       EUMETSAT_SECRET: ${{ secrets.EUMETSAT_SECRET }}
@@ -65,7 +65,7 @@ jobs:
             data/milkyway_2020_8k.exr
           key: static-v2
       - run: uv sync --extra raw && uv run fetch_data.py
-      - run: uv run daily.py raw --date ${{ needs.plan.outputs.day }} --shard ${{ matrix.shard }} --shards 8
+      - run: uv run daily.py raw --date ${{ needs.plan.outputs.day }} --shard ${{ matrix.shard }} --shards 12
       - uses: actions/upload-artifact@v4
         if: always()
         with:

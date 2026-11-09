@@ -82,7 +82,12 @@ def build(zip_path, out_dir, keep=False):
     from satpy import Scene
     from satpy.writers import get_enhanced_image
     import dask
-    dask.config.set(scheduler="threads", num_workers=os.cpu_count())
+    # netCDF4/HDF5 wheels on Linux are not thread-safe (HDF errors, segfaults
+    # with threaded reads): read single-threaded there
+    if sys.platform.startswith("linux") or os.environ.get("FCI_SYNC"):
+        dask.config.set(scheduler="synchronous")
+    else:
+        dask.config.set(scheduler="threads", num_workers=os.cpu_count())
     when = slot_time(zip_path)
     name = when.strftime("%Y%m%d_%H%M") + ".jpg"
     tmp = os.path.splitext(os.path.abspath(zip_path))[0]
