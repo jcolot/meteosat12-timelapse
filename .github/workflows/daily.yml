@@ -1,0 +1,99 @@
+name: daily
+
+# Every night: yesterday's Meteosat-12 frames -> 60 s and 20 s 4K videos,
+# published as a GitHub Release tagged with the date.
+on:
+  schedule:
+    - cron: "30 2 * * *"          # 02:30 UTC, after the day's last frame is out
+  workflow_dispatch:
+    inputs:
+      date:
+        description: "Day to render, YYYY-MM-DD (default: yesterday, UTC)"
+        required: false
+
+permissions:
+  contents: write                 # create the release
+
+concurrency:
+  group: daily-${{ inputs.date || 'scheduled' }}
+  cancel-in-progress: false
+
+jobs:
+  download:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    outputs:
+      day: ${{ steps.day.outputs.day }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: day
+        run: |
+          d="${{ inputs.date }}"
+          echo "day=${d:-$(date -u -d yesterday +%F)}" >> "$GITHUB_OUTPUT"
+      - uses: astral-sh/setup-uv@v6
+      - uses: actions/cache@v4
+        with:
+          path: |
+            data/hip.tsv
+            data/de421.bsp
+            data/milkyway_2020_8k.exr
+            data/mask.png
+          key: static-v1
+      - run: uv sync && uv run fetch_data.py
+      - run: uv run daily.py download --date ${{ steps.day.outputs.day }} --budget-min 320
+      - uses: actions/upload-artifact@v4
+        with:
+          name: frames
+          path: |
+            work/
+            data/mask.png
+          retention-days: 3
+
+  render:
+    needs: download
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    strategy:
+      fail-fast: false
+      matrix:
+        cut: [full, short]
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update -q && sudo apt-get install -yq ffmpeg fonts-dejavu-core
+      - uses: astral-sh/setup-uv@v6
+      - uses: actions/cache/restore@v4
+        with:
+          path: |
+            data/hip.tsv
+            data/de421.bsp
+            data/milkyway_2020_8k.exr
+            data/mask.png
+          key: static-v1
+      - uses: actions/download-artifact@v4
+        with:
+          name: frames
+      - run: uv sync && uv run fetch_data.py
+      - run: uv run daily.py render --cut ${{ matrix.cut }} --date ${{ needs.download.outputs.day }} --workers 3
+      - uses: actions/upload-artifact@v4
+        with:
+          name: video-${{ matrix.cut }}
+          path: out/*.mp4
+          retention-days: 3
+
+  release:
+    needs: [download, render]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - run: |
+          mkdir -p work && cp -r artifacts/frames/work/* work/
+          uv run daily.py notes --date "$DAY" > notes.md
+          gh release create "$DAY" artifacts/video-*/*.mp4 \
+            --title "Earth from Meteosat-12, $DAY" --notes-file notes.md
+        env:
+          DAY: ${{ needs.download.outputs.day }}
+          GH_TOKEN: ${{ github.token }}

@@ -6,6 +6,7 @@
 !/LICENSE
 !/pyproject.toml
 !/uv.lock
+!/.github/
 !/*.py
 !/raw/
 /raw/*

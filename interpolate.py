@@ -201,17 +201,24 @@ def atm_job(args):
     return path
 
 
-CREDIT_FONT = "/System/Library/Fonts/HelveticaNeue.ttc"
+CREDIT_FONTS = ["/System/Library/Fonts/HelveticaNeue.ttc",                 # macOS
+                "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",       # Debian/Ubuntu
+                "/usr/share/fonts/dejavu-sans-fonts/DejaVuSans.ttf"]    # Fedora
 
 
 def credit_overlay(W, H, text, opacity=0.7):
     """(H, W, 1) alpha and (3,) colour of a small credit line, bottom right."""
     from PIL import ImageDraw, ImageFont
     size = max(12, round(H / 72))                     # 30 px at 2160
-    try:
-        font = ImageFont.truetype(CREDIT_FONT, size)
-    except OSError:
-        font = ImageFont.load_default()
+    font = None
+    for path in CREDIT_FONTS:
+        try:
+            font = ImageFont.truetype(path, size)
+            break
+        except OSError:
+            pass
+    if font is None:
+        font = ImageFont.load_default(size)
     layer = Image.new("L", (W, H), 0)
     d = ImageDraw.Draw(layer)
     margin = round(H / 40)
