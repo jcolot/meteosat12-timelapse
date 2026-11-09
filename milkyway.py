@@ -35,17 +35,68 @@ SOFTEN = 0.8         # px (map pixels) of blur: the map's faint-star grain would
                      # otherwise show as blobs when upsampled 4x
 
 
+def read_exr(path):
+    """RGB float32 (H, W, 3) from a scanline OpenEXR file with ZIP / ZIPS or no
+    compression (what NASA's map uses), with numpy and zlib only: OpenCV's EXR
+    support depends on how the wheel was built (absent on the Linux runners)."""
+    import struct, zlib
+    d = open(path, "rb").read()
+    if d[:4] != b"\x76\x2f\x31\x01":
+        raise ValueError("not an OpenEXR file")
+    attrs, i = {}, 8
+    while d[i]:                                           # header: name, type, size, value
+        j = d.index(b"\0", i)
+        k = d.index(b"\0", j + 1)
+        n = struct.unpack_from("<i", d, k + 1)[0]
+        attrs[d[i:j].decode()] = d[k + 5:k + 5 + n]
+        i = k + 5 + n
+    i += 1
+    chans, c = [], attrs["channels"]                      # name, pixel type, ..., sampling
+    while c[0]:
+        j = c.index(b"\0")
+        chans.append((c[:j].decode(), struct.unpack_from("<i", c, j + 1)[0]))
+        c = c[j + 17:]
+    comp = attrs["compression"][0]
+    if comp not in (0, 2, 3):
+        raise ValueError(f"EXR compression {comp} not supported (only none / ZIPS / ZIP)")
+    x0, y0, x1, y1 = struct.unpack("<4i", attrs["dataWindow"])
+    w, h = x1 - x0 + 1, y1 - y0 + 1
+    lines = {0: 1, 2: 1, 3: 16}[comp]
+    nchunk = (h + lines - 1) // lines
+    offsets = np.frombuffer(d, "<u8", nchunk, i)
+    types = {1: np.dtype("<f2"), 2: np.dtype("<f4"), 0: np.dtype("<u4")}
+    out = {name: np.empty((h, w), np.float32) for name, _ in chans}
+    for off in offsets:
+        y, size = struct.unpack_from("<ii", d, int(off))
+        raw = d[int(off) + 8:int(off) + 8 + size]
+        nl = min(lines, y0 + h - y)
+        need = sum(types[t].itemsize for _, t in chans) * w * nl
+        if comp and size < need:                          # stored uncompressed if that was smaller
+            t = np.frombuffer(zlib.decompress(raw), np.uint8).astype(np.int64)
+            t[1:] -= 128                                  # undo the predictor:
+            t = (np.cumsum(t) & 0xFF).astype(np.uint8)    # t[i] = t[i-1] + t[i] - 128 (mod 256)
+            half = (len(t) + 1) // 2                      # undo the byte interleave
+            u = np.empty_like(t)
+            u[0::2], u[1::2] = t[:half], t[half:]
+            raw = u.tobytes()
+        p = 0
+        for r in range(nl):                               # per line, channels in order
+            for name, t in chans:
+                n = types[t].itemsize * w
+                out[name][y - y0 + r] = np.frombuffer(raw, types[t], w, p)
+                p += n
+    return np.dstack([out["R"], out["G"], out["B"]])
+
+
 def ensure_map():
     """Build the float16 .npy cache from the EXR once (atomically, so parallel
     workers never read a half-written file)."""
     if os.path.exists(MAP):
         return
-    os.environ.setdefault("OPENCV_IO_ENABLE_OPENEXR", "1")
-    full = cv2.imread(EXR, cv2.IMREAD_UNCHANGED)
-    if full is None:
-        raise SystemExit(f"cannot read {EXR} (run fetch_data.py)")
+    if not os.path.exists(EXR):
+        raise SystemExit(f"{EXR} is missing (run fetch_data.py)")
     tmp = f"{MAP}.{os.getpid()}.npy"
-    np.save(tmp, full[..., ::-1].astype(np.float16))
+    np.save(tmp, read_exr(EXR).astype(np.float16))
     os.replace(tmp, MAP)
 
 
