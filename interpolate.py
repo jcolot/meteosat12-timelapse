@@ -226,12 +226,21 @@ def credit_overlay(W, H, text, opacity=0.7):
     d = ImageDraw.Draw(layer)
     margin = round(short / 40)
     width = lambda s: d.textlength(s, font=font)
-    lines = []
-    for part in text.split(" · "):
-        if lines and width(lines[-1] + " · " + part) <= W - 2 * margin:
-            lines[-1] += " · " + part
-        else:
-            lines.append(part)
+    # fewest lines that fit, then the split whose longest line is shortest
+    import itertools, re
+    parts = re.split(r"\s+\u00b7\s+", text)
+    sep = "  \u00b7  "
+    best = None
+    for n in range(1, len(parts) + 1):
+        for cuts in itertools.combinations(range(1, len(parts)), n - 1):
+            b = (0,) + cuts + (len(parts),)
+            cand = [sep.join(parts[i:j]) for i, j in zip(b, b[1:])]
+            w = max(width(c) for c in cand)
+            if w <= W - 2 * margin and (best is None or w < best[0]):
+                best = (w, cand)
+        if best:
+            break
+    lines = best[1] if best else parts
     asc, desc = font.getmetrics()
     step = round((asc + desc) * 1.25)
     y = H - margin - desc - step * (len(lines) - 1)
