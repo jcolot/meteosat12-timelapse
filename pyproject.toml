@@ -1,0 +1,22 @@
+[project]
+name = "meteosat12-timelapse"
+version = "0.1.0"
+description = "Daily 4K timelapse of the Earth from Meteosat-12 (MTG-I1) with the true sky behind it"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.12"
+dependencies = [
+    "numpy>=2.0",
+    "opencv-python-headless>=4.10",
+    "pillow>=10",
+    "skyfield>=1.49",
+]
+
+[project.optional-dependencies]
+# Apple GPU (Metal) renderer: interpolate.py --device mps
+gpu = ["torch>=2.4"]
+# frames built from raw FCI Level 1c (raw/fci_frame.py)
+raw = ["satpy>=0.55", "h5netcdf", "netCDF4", "pyspectral"]
+
+[tool.uv]
+package = false

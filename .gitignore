@@ -1,0 +1,21 @@
+# Only the pipeline's source is tracked. Everything generated locally
+# (data/, frames*, stills*, renders, logs, caches, credentials) stays out.
+/*
+!/.gitignore
+!/README.md
+!/LICENSE
+!/pyproject.toml
+!/uv.lock
+!/*.py
+!/raw/
+/raw/*
+!/raw/*.py
+
+# local tuning scripts tied to local test data
+/stills.py
+/sky_stills.py
+/night_stills.py
+
+.env
+__pycache__/
+*.pyc
