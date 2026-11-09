@@ -12,7 +12,7 @@
       Alternative source: GeoColour + infrared night layers from EUMETView
       (repeated passes until complete or out of time budget), then gather.
   daily.py render --cut full|short [--date ...] [--device cpu|mps]
-      60 s (full) or 20 s (short) 4K video into out/.
+      60 s 16:9 (full) or 15 s 9:16 portrait (short) 4K video into out/.
   daily.py notes [--date ...]
       Release notes (markdown) on stdout.
 
@@ -28,11 +28,15 @@ LAYERS = {                       # folder -> (EUMETView layer, required)
     "fog": ("mtg_fd:rgb_fog", False),
 }
 SLOTS = 145                      # 00:00 .. 24:00 every 10 min
-MIN_GEOCOLOUR = 130              # below this the day is not rendered
+MIN_GEOCOLOUR = 130
+ATTEMPTS = 6                     # raw: per slot (1 GB downloads are sometimes cut short)              # below this the day is not rendered
 MASK = os.path.join(HERE, "data", "mask.png")
-CUTS = {
-    "full": [],
-    "short": ["--stride", "3", "--shutter", "1.5", "--body-shutter", "0.25"],
+CUTS = {                         # name -> (file suffix, interpolate.py args)
+    "full": ("", ["--canvas", "3840x2160"]),
+    # 15 s portrait 9:16 (Shorts / Reels), the whole disc across the width:
+    # every 4th frame, longer shutter to keep the motion smooth
+    "short": ("_15s_vertical", ["--canvas", "2160x3840", "--earth-px", "2020",
+                                "--stride", "4", "--shutter", "2.0", "--body-shutter", "0.2"]),
 }
 
 
@@ -129,7 +133,7 @@ def raw(a):
         name = t.strftime("%Y%m%d_%H%M") + ".jpg"
         if all(os.path.exists(os.path.join(wd, sub, name)) for sub in LAYERS):
             continue
-        for attempt in range(3):
+        for attempt in range(ATTEMPTS):
             try:
                 ids = [p for p in datastore.search(datastore.FDHSI, t.strftime("%Y-%m-%dT%H:%M:00Z"),
                                                    (t + dt.timedelta(minutes=9, seconds=59)).strftime("%Y-%m-%dT%H:%M:%SZ"))
@@ -152,9 +156,9 @@ def raw(a):
                 for f in os.listdir(tmp):
                     p = os.path.join(tmp, f)
                     (os.remove if os.path.isfile(p) else __import__("shutil").rmtree)(p)
-                time.sleep(20 * (attempt + 1))
-            else:
-                failed.append(name)
+                time.sleep(30 * (attempt + 1))
+        else:                                                 # no break: every attempt failed
+            failed.append(name)
     print(f"shard {a.shard}/{a.shards}: {built} built, {len(failed)} failed {failed}", flush=True)
     if failed and not built:                                  # nothing at all: make the job fail
         sys.exit(f"shard {a.shard}: every slot failed")
@@ -194,10 +198,11 @@ def render(a):
     wd = work_dir(day)
     st = json.load(open(os.path.join(wd, "status.json")))
     os.makedirs(os.path.join(HERE, "out"), exist_ok=True)
-    name = f"earth_{day.isoformat()}_4k" + ("" if a.cut == "full" else "_20s") + ".mp4"
+    suffix, args = CUTS[a.cut]
+    name = f"earth_{day.isoformat()}_4k{suffix}.mp4"
     cmd = [PY, os.path.join(HERE, "interpolate.py"), os.path.join(wd, "geocolour"),
-           "--mask", MASK, "--canvas", "3840x2160", "--sky-strength", "0.4",
-           "--device", a.device, "-o", os.path.join(HERE, "out", name)] + CUTS[a.cut]
+           "--mask", MASK, "--sky-strength", "0.4",
+           "--device", a.device, "-o", os.path.join(HERE, "out", name)] + args
     if st["night_layers"]:
         cmd += ["--night-fog", os.path.join(wd, "fog"), "--night-ir", os.path.join(wd, "ir")]
     if a.workers:
@@ -214,7 +219,7 @@ def notes(a):
 every 10 minutes, with the real sky behind it: stars, Moon and planets where they actually were.
 
 - `earth_{day}_4k.mp4`: 60 s, 3840×2160, 24 fps
-- `earth_{day}_4k_20s.mp4`: 20 s cut
+- `earth_{day}_4k_15s_vertical.mp4`: 15 s, 2160×3840 portrait (Shorts / Reels)
 
 Frames: {st['downloaded']['geocolour']}/145 from {st.get('source', 'EUMETView')}{f', {syn} missing slot(s) filled by motion interpolation' if syn else ''}.
 Night clouds: {'GeoColour + infrared fog / low-cloud and 10.5 µm layers' if st['night_layers'] else 'GeoColour'}.

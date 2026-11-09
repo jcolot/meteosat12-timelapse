@@ -207,9 +207,12 @@ CREDIT_FONTS = ["/System/Library/Fonts/HelveticaNeue.ttc",                 # mac
 
 
 def credit_overlay(W, H, text, opacity=0.7):
-    """(H, W, 1) alpha and (3,) colour of a small credit line, bottom right."""
+    """(H, W, 1) alpha of a small credit, bottom right; wrapped at its
+    " · " separators into right-aligned lines when it is wider than the
+    canvas (portrait formats)."""
     from PIL import ImageDraw, ImageFont
-    size = max(12, round(H / 72))                     # 30 px at 2160
+    short = min(W, H)
+    size = max(12, round(short / 72))                 # 30 px at 2160
     font = None
     for path in CREDIT_FONTS:
         try:
@@ -221,11 +224,20 @@ def credit_overlay(W, H, text, opacity=0.7):
         font = ImageFont.load_default(size)
     layer = Image.new("L", (W, H), 0)
     d = ImageDraw.Draw(layer)
-    margin = round(H / 40)
-    bbox = d.textbbox((0, 0), text, font=font)
-    x = W - margin - (bbox[2] - bbox[0])
-    y = H - margin - (bbox[3] - bbox[1])
-    d.text((x - bbox[0], y - bbox[1]), text, font=font, fill=255)
+    margin = round(short / 40)
+    width = lambda s: d.textlength(s, font=font)
+    lines = []
+    for part in text.split(" · "):
+        if lines and width(lines[-1] + " · " + part) <= W - 2 * margin:
+            lines[-1] += " · " + part
+        else:
+            lines.append(part)
+    asc, desc = font.getmetrics()
+    step = round((asc + desc) * 1.25)
+    y = H - margin - desc - step * (len(lines) - 1)
+    for line in lines:
+        d.text((W - margin - width(line), y), line, font=font, fill=255, anchor="ls")
+        y += step
     return np.asarray(layer, np.float32)[..., None] / 255.0 * opacity
 
 

@@ -1,6 +1,6 @@
 """Minimal EUMETSAT Data Store client (search + download), credentials from .env
 (KEY, SECRET). Usage: datastore.py COLLECTION START END OUTDIR"""
-import base64, json, os, sys, time, urllib.parse, urllib.request
+import base64, json, os, sys, time, urllib.parse, urllib.request, zipfile
 
 API = "https://api.eumetsat.int"
 FDHSI = "EO:EUM:DAT:0662"        # FCI Level 1c normal resolution, full disc, 0 deg
@@ -54,9 +54,17 @@ def download(coll, pid, out_dir, tok):
     req = urllib.request.Request(url, headers={"Authorization": "Bearer " + tok})
     t0, n = time.time(), 0
     with urllib.request.urlopen(req, timeout=300) as r, open(path + ".part", "wb") as f:
+        size = int(r.headers.get("Content-Length") or 0)
         while chunk := r.read(1 << 20):
             f.write(chunk)
             n += len(chunk)
+    # the server sometimes ends a 1 GB transfer early without an error
+    if size and n != size:
+        os.remove(path + ".part")
+        raise IOError(f"truncated download: {n} of {size} bytes")
+    if not zipfile.is_zipfile(path + ".part"):
+        os.remove(path + ".part")
+        raise IOError(f"not a zip file ({n} bytes)")
     os.replace(path + ".part", path)
     print(f"ok {pid[:60]}... {n / 1e6:.0f} MB in {time.time() - t0:.0f} s", flush=True)
     return path
