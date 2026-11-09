@@ -193,8 +193,8 @@ def build(day_mid, W, H, ppr, shutter_min, out_dir, gain=1.0, mag_limit=8.0, con
     R = np.asarray(sky.ts.from_datetime(day_mid).M).T.astype(np.float32)    # TOD -> J2000
     mrows, mcols = rows // MW_DOWN, cols // MW_DOWN
     mw = mwy.MilkyWay.__new__(mwy.MilkyWay)
+    mmap = mwy.load_map(mwy.SOFTEN)                      # builds the .npy cache on first use
     mw.mh, mw.mw = np.load(mwy.MAP, mmap_mode="r").shape[:2]
-    mmap = mwy.load_map(mwy.SOFTEN)
     out = np.lib.format.open_memmap(path + ".mw.tmp.npy", "w+", np.float32, (mrows, mcols, 3))
     dec_m = np.radians(dmax - (np.arange(mrows) + 0.5) / (ppd / MW_DOWN))
     for c0 in range(0, mcols, 2048):

@@ -35,14 +35,24 @@ SOFTEN = 0.8         # px (map pixels) of blur: the map's faint-star grain would
                      # otherwise show as blobs when upsampled 4x
 
 
+def ensure_map():
+    """Build the float16 .npy cache from the EXR once (atomically, so parallel
+    workers never read a half-written file)."""
+    if os.path.exists(MAP):
+        return
+    os.environ.setdefault("OPENCV_IO_ENABLE_OPENEXR", "1")
+    full = cv2.imread(EXR, cv2.IMREAD_UNCHANGED)
+    if full is None:
+        raise SystemExit(f"cannot read {EXR} (run fetch_data.py)")
+    tmp = f"{MAP}.{os.getpid()}.npy"
+    np.save(tmp, full[..., ::-1].astype(np.float16))
+    os.replace(tmp, MAP)
+
+
 def load_map(soften=SOFTEN, rows=None):
     """The map as float32, optionally only rows[0]:rows[1] (cropped before
     conversion and blur, so the full 400 MB float32 map never exists)."""
-    if not os.path.exists(MAP):
-        os.environ.setdefault("OPENCV_IO_ENABLE_OPENEXR", "1")
-        full = cv2.imread(EXR, cv2.IMREAD_UNCHANGED)[..., ::-1]
-        np.save(MAP, full.astype(np.float16))
-        del full
+    ensure_map()
     m16 = np.load(MAP, mmap_mode="r")
     if rows is not None:
         m16 = m16[rows[0]:rows[1]]
@@ -80,6 +90,7 @@ def to_j2000(sky, when):
 
 class MilkyWay:
     def __init__(self, width, height, ppr, gain=GAIN, floor=FLOOR, soften=SOFTEN, saturation=SATURATION):
+        ensure_map()
         self.mh, self.mw = np.load(MAP, mmap_mode="r").shape[:2]
         self.rays = canvas_rays(width, height, ppr)
         self.gain, self.floor = gain, floor
