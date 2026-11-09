@@ -36,9 +36,10 @@ uv run fill_gaps.py frames_$D MASK.png
 # 3. render: 60 s at 24 fps, 3840x2160
 uv run interpolate.py frames_$D --mask MASK.png --canvas 3840x2160 --sky-strength 0.4 \
     --night-fog fog_$D --night-ir ir_$D -o earth_$D.mp4
-# 20 s cut: every 3rd frame with a longer shutter
-uv run interpolate.py frames_$D --mask MASK.png --canvas 3840x2160 --sky-strength 0.4 \
-    --stride 3 --shutter 1.5 --body-shutter 0.25 -o earth_${D}_20s.mp4
+# 15 s portrait 9:16 (Shorts / Reels), whole disc: every 4th frame, longer shutter
+uv run interpolate.py frames_$D --mask MASK.png --canvas 2160x3840 --earth-px 2020 \
+    --sky-strength 0.4 --night-fog fog_$D --night-ir ir_$D \
+    --stride 4 --shutter 2.0 --body-shutter 0.2 -o earth_${D}_15s_vertical.mp4
 ```
 
 `MASK.png` is any transparent-background PNG frame (`--format png`); its alpha marks the
@@ -69,14 +70,44 @@ uv run daily.py render --cut full --date 2026-11-08 --device mps
 `.github/workflows/daily.yml` renders yesterday at 02:30 UTC and publishes both videos
 as a release tagged with the date. The raw slots are split over 12 parallel jobs
 (download, build frames, delete, about 12 slots each), then merged, rendered (60 s
-and 20 s in parallel) and released. It needs two repository secrets:
+and 15 s portrait in parallel) and released. It needs two repository secrets:
 
 ```bash
 grep '^KEY=' .env | cut -d= -f2- | gh secret set EUMETSAT_KEY
 grep '^SECRET=' .env | cut -d= -f2- | gh secret set EUMETSAT_SECRET
 ```
 
-Run it by hand for any day from the Actions tab (source `raw` or `eumetview`).
+Run it by hand for any day from the Actions tab (source `raw` or `eumetview`). To redo
+only the render and release, pass the run ID of an earlier run as `frames_from_run`
+(frames are kept 3 days). Once the videos are in the release, the run's artifacts
+(frames, videos) are deleted.
+
+### YouTube
+
+If the secrets below exist, the release job also uploads both videos to YouTube
+(the 15 s portrait one as a Short); privacy comes from the repository variable
+`YOUTUBE_PRIVACY` (default `public`).
+
+1. In a Google Cloud project, enable the *YouTube Data API v3* and create an OAuth
+   client of type *Desktop app*. Put its ID and secret in `.env` as
+   `YOUTUBE_CLIENT_ID=` and `YOUTUBE_CLIENT_SECRET=`, and store them as secrets:
+
+   ```bash
+   grep '^YOUTUBE_CLIENT_ID=' .env | cut -d= -f2- | gh secret set YOUTUBE_CLIENT_ID
+   grep '^YOUTUBE_CLIENT_SECRET=' .env | cut -d= -f2- | gh secret set YOUTUBE_CLIENT_SECRET
+   ```
+
+2. Sign in once with the channel's Google account; the refresh token goes straight into
+   the `YOUTUBE_REFRESH_TOKEN` secret:
+
+   ```bash
+   uv run youtube.py auth
+   ```
+
+Videos uploaded through an API project that Google has not audited are locked to
+*private*; request the audit (YouTube API Services compliance form) to publish them
+publicly. While the OAuth consent screen is in *Testing* mode, refresh tokens expire
+after 7 days: set it to *In production* (no verification needed for your own use).
 
 ## How it works
 

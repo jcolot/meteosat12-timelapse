@@ -1,6 +1,6 @@
 name: daily
 
-# Every night: yesterday's Meteosat-12 day -> 60 s and 20 s 4K videos,
+# Every night: yesterday's Meteosat-12 day -> 60 s 16:9 and 15 s 9:16 4K videos,
 # published as a GitHub Release tagged with the date.
 #
 # Frames come from raw FCI Level 1c data (EUMETSAT Data Store; secrets
@@ -20,9 +20,13 @@ on:
         type: choice
         options: [raw, eumetview]
         default: raw
+      frames_from_run:
+        description: "Reuse the frames of an earlier run (its run ID) and only render + release"
+        required: false
 
 permissions:
   contents: write                 # create the release
+  actions: write                  # delete this run's frame artifacts afterwards
 
 concurrency:
   group: daily-${{ inputs.date || 'scheduled' }}
@@ -34,6 +38,7 @@ jobs:
     outputs:
       day: ${{ steps.p.outputs.day }}
       source: ${{ steps.p.outputs.source }}
+      frames_run: ${{ steps.p.outputs.frames_run }}
     steps:
       - id: p
         run: |
@@ -41,10 +46,11 @@ jobs:
           s="${{ inputs.source }}"
           echo "day=${d:-$(date -u -d yesterday +%F)}" >> "$GITHUB_OUTPUT"
           echo "source=${s:-raw}" >> "$GITHUB_OUTPUT"
+          echo "frames_run=${{ inputs.frames_from_run }}" >> "$GITHUB_OUTPUT"
 
   frames-raw:
     needs: plan
-    if: needs.plan.outputs.source == 'raw'
+    if: needs.plan.outputs.source == 'raw' && needs.plan.outputs.frames_run == ''
     runs-on: ubuntu-latest
     timeout-minutes: 340
     strategy:
@@ -75,7 +81,7 @@ jobs:
 
   frames-eumetview:
     needs: plan
-    if: needs.plan.outputs.source == 'eumetview'
+    if: needs.plan.outputs.source == 'eumetview' && needs.plan.outputs.frames_run == ''
     runs-on: ubuntu-latest
     timeout-minutes: 350
     steps:
@@ -99,7 +105,7 @@ jobs:
 
   gather:
     needs: [plan, frames-raw, frames-eumetview]
-    if: ${{ !cancelled() && (needs.frames-raw.result != 'skipped' || needs.frames-eumetview.result != 'skipped') }}
+    if: ${{ !cancelled() && needs.plan.outputs.frames_run == '' && (needs.frames-raw.result != 'skipped' || needs.frames-eumetview.result != 'skipped') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -125,6 +131,8 @@ jobs:
 
   render:
     needs: [plan, gather]
+    # a skipped job anywhere upstream would skip this one by default
+    if: ${{ !cancelled() && (needs.gather.result == 'success' || needs.plan.outputs.frames_run != '') }}
     runs-on: ubuntu-latest
     timeout-minutes: 350
     strategy:
@@ -145,6 +153,8 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: frames
+          run-id: ${{ needs.plan.outputs.frames_run || github.run_id }}
+          github-token: ${{ github.token }}
       - run: uv sync && uv run fetch_data.py
       - run: uv run daily.py render --cut ${{ matrix.cut }} --date ${{ needs.plan.outputs.day }} --workers 3
       - uses: actions/upload-artifact@v4
@@ -155,18 +165,48 @@ jobs:
 
   release:
     needs: [plan, render]
+    if: ${{ !cancelled() && needs.render.result == 'success' }}
     runs-on: ubuntu-latest
+    env:
+      DAY: ${{ needs.plan.outputs.day }}
+      GH_TOKEN: ${{ github.token }}
+      YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
+      YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
+      YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
       - uses: actions/download-artifact@v4
         with:
-          path: artifacts
-      - run: |
-          mkdir -p work && cp -r artifacts/frames/work/* work/
+          pattern: video-*
+          path: videos
+          merge-multiple: true
+      - uses: actions/download-artifact@v4
+        with:
+          name: frames
+          path: frames
+          run-id: ${{ needs.plan.outputs.frames_run || github.run_id }}
+          github-token: ${{ github.token }}
+      - name: GitHub release (videos only)
+        run: |
+          mkdir -p work && cp -r frames/work/* work/
           uv run daily.py notes --date "$DAY" > notes.md
-          gh release create "$DAY" artifacts/video-*/*.mp4 \
-            --title "Earth from Meteosat-12, $DAY" --notes-file notes.md
-        env:
-          DAY: ${{ needs.plan.outputs.day }}
-          GH_TOKEN: ${{ github.token }}
+          gh release create "$DAY" videos/*.mp4 \
+            --title "Earth from Meteosat-12, $DAY" --notes-file notes.md \
+            || gh release upload "$DAY" videos/*.mp4 --clobber
+      - name: YouTube
+        if: env.YOUTUBE_REFRESH_TOKEN != ''
+        run: |
+          when=$(date -u -d "$DAY" '+%-d %B %Y')
+          { cat notes.md; echo; echo "Videos and source: https://github.com/${{ github.repository }}/releases/tag/$DAY"; } \
+            | sed 's/`//g; s/\*\*//g' > yt.txt
+          tags="Meteosat-12,MTG,EUMETSAT,Earth,timelapse,satellite,stars"
+          privacy="${{ vars.YOUTUBE_PRIVACY || 'public' }}"
+          uv run youtube.py upload videos/earth_${DAY}_4k.mp4 --privacy "$privacy" \
+            --title "Earth from Meteosat-12 with the real sky, $when (4K)" --description-file yt.txt --tags "$tags"
+          uv run youtube.py upload videos/earth_${DAY}_4k_15s_vertical.mp4 --privacy "$privacy" \
+            --title "A day of Earth from space, $when #Shorts" --description-file yt.txt --tags "$tags"
+      - name: Delete this run's intermediate artifacts (frames, videos)
+        run: |
+          gh api --paginate repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts \
+            --jq '.artifacts[].id' | xargs -r -I{} gh api -X DELETE repos/${{ github.repository }}/actions/artifacts/{}
