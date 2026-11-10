@@ -9,7 +9,11 @@ name: daily
 # deleted once turned into frames). EUMETView remains available as a source.
 on:
   schedule:
-    - cron: "30 2 * * *"          # 02:30 UTC, after the day's last slot is archived
+    # GitHub's cron is best-effort (runs get delayed or dropped at busy times,
+    # most of all on the hour): two tries off the hour; a scheduled run whose
+    # day is already released does nothing
+    - cron: "37 2 * * *"
+    - cron: "13 5 * * *"
   workflow_dispatch:
     inputs:
       date:
@@ -39,18 +43,25 @@ jobs:
       day: ${{ steps.p.outputs.day }}
       source: ${{ steps.p.outputs.source }}
       frames_run: ${{ steps.p.outputs.frames_run }}
+      skip: ${{ steps.p.outputs.skip }}
     steps:
       - id: p
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           d="${{ inputs.date }}"
           s="${{ inputs.source }}"
           echo "day=${d:-$(date -u -d yesterday +%F)}" >> "$GITHUB_OUTPUT"
           echo "source=${s:-raw}" >> "$GITHUB_OUTPUT"
           echo "frames_run=${{ inputs.frames_from_run }}" >> "$GITHUB_OUTPUT"
+          day=${d:-$(date -u -d yesterday +%F)}
+          if [ "${{ github.event_name }}" = schedule ] && gh release view "$day" -R "${{ github.repository }}" >/dev/null 2>&1; then
+            echo "$day is already released"; echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
 
   frames-raw:
     needs: plan
-    if: needs.plan.outputs.source == 'raw' && needs.plan.outputs.frames_run == ''
+    if: needs.plan.outputs.skip != 'true' && needs.plan.outputs.source == 'raw' && needs.plan.outputs.frames_run == ''
     runs-on: ubuntu-latest
     timeout-minutes: 340
     strategy:
@@ -81,7 +92,7 @@ jobs:
 
   frames-eumetview:
     needs: plan
-    if: needs.plan.outputs.source == 'eumetview' && needs.plan.outputs.frames_run == ''
+    if: needs.plan.outputs.skip != 'true' && needs.plan.outputs.source == 'eumetview' && needs.plan.outputs.frames_run == ''
     runs-on: ubuntu-latest
     timeout-minutes: 350
     steps:

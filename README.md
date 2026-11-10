@@ -67,7 +67,7 @@ uv run daily.py render --cut full --date 2026-11-08 --device mps
 
 ## Nightly on GitHub Actions
 
-`.github/workflows/daily.yml` renders yesterday at 02:30 UTC and publishes both videos
+`.github/workflows/daily.yml` renders yesterday (02:37 UTC, retried at 05:13 if GitHub dropped the first run) and publishes both videos
 as a release tagged with the date. The raw slots are split over 12 parallel jobs
 (download, build frames, delete, about 12 slots each), then merged, rendered (60 s
 and 15 s portrait in parallel) and released. It needs two repository secrets:
