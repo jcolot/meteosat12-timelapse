@@ -60,10 +60,14 @@ jobs:
             exit
           fi
           when=$(date -u -d "$DAY" '+%-d %B %Y')
+          # channel text + the day's frame/source lines and credits from the release notes;
           # YouTube rejects < and > in descriptions; drop markdown marks
-          { gh release view "$DAY" --json body --jq .body; echo
-            echo "Videos and source: https://github.com/${{ github.repository }}/releases/tag/$DAY"; } \
-            | sed 's/`//g; s/\*\*//g; s/[<>]//g' > yt.txt
+          body=$(gh release view "$DAY" --json body --jq .body | sed 's/`//g; s/\*\*//g; s/[<>]//g')
+          { cat youtube_description.txt; echo
+            echo "$body" | grep -E '^(Frames|Night clouds):'; echo
+            echo "$body" | sed -n '/^Contains/,$p'; echo
+            echo "Videos and source: https://github.com/${{ github.repository }}/releases/tag/$DAY"; } > yt.txt
+          title="Blue Marble Timelapse, 10-Minute Interval $when"
           if [ -n "$COMMAND" ]; then
             eval "uv run youtube.py $COMMAND"
             exit
@@ -73,6 +77,6 @@ jobs:
           privacy="${{ vars.YOUTUBE_PRIVACY || 'public' }}"
           pl="${{ vars.YOUTUBE_PLAYLIST }}"; pls="${{ vars.YOUTUBE_PLAYLIST_SHORTS || vars.YOUTUBE_PLAYLIST }}"
           uv run youtube.py upload "videos/earth_${DAY}_4k.mp4" --privacy "$privacy" ${pl:+--playlist "$pl"} \
-            --title "Earth from Meteosat-12 with the real sky, $when (4K)" --description-file yt.txt --tags "$tags"
+            --title "$title" --description-file yt.txt --tags "$tags"
           uv run youtube.py upload "videos/earth_${DAY}_4k_15s_vertical.mp4" --privacy "$privacy" ${pls:+--playlist "$pls"} \
-            --title "A day of Earth from space, $when #Shorts" --description-file yt.txt --tags "$tags"
+            --title "$title #dataviz #astronomy" --description-file yt.txt --tags "$tags"
