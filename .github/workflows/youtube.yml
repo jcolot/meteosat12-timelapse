@@ -22,6 +22,9 @@ on:
       remove_from:
         description: "With videos: playlist ID to take them out of first"
         required: false
+      command:
+        description: "Instead of uploading: youtube.py arguments (list, update ID --title T --description-file yt.txt, delete ID); yt.txt is the day's description"
+        required: false
   workflow_call:
     inputs:
       date:
@@ -40,6 +43,7 @@ jobs:
       YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
       YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
       YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
+      COMMAND: ${{ inputs.command }}
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
@@ -55,12 +59,16 @@ jobs:
             uv run youtube.py playlist-add "${{ inputs.playlist || vars.YOUTUBE_PLAYLIST }}" ${{ inputs.videos }}
             exit
           fi
-          gh release download "$DAY" --pattern '*.mp4' --dir videos
           when=$(date -u -d "$DAY" '+%-d %B %Y')
           # YouTube rejects < and > in descriptions; drop markdown marks
           { gh release view "$DAY" --json body --jq .body; echo
             echo "Videos and source: https://github.com/${{ github.repository }}/releases/tag/$DAY"; } \
             | sed 's/`//g; s/\*\*//g; s/[<>]//g' > yt.txt
+          if [ -n "$COMMAND" ]; then
+            eval "uv run youtube.py $COMMAND"
+            exit
+          fi
+          gh release download "$DAY" --pattern '*.mp4' --dir videos
           tags="Meteosat-12,MTG,EUMETSAT,Earth,timelapse,satellite,stars,space"
           privacy="${{ vars.YOUTUBE_PRIVACY || 'public' }}"
           pl="${{ vars.YOUTUBE_PLAYLIST }}"; pls="${{ vars.YOUTUBE_PLAYLIST_SHORTS || vars.YOUTUBE_PLAYLIST }}"

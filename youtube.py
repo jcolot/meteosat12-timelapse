@@ -14,6 +14,9 @@
       Add already uploaded videos to a playlist (skips those already in it).
   youtube.py playlist-remove PLAYLIST_ID VIDEO_ID [VIDEO_ID ...]
       Take videos out of a playlist.
+  youtube.py list [PLAYLIST_ID ...]      The channel's uploads (and playlist membership).
+  youtube.py update VIDEO_ID [--title T] [--description-file F]
+  youtube.py delete VIDEO_ID [...]
 
 Credentials for upload: YOUTUBE_CLIENT_ID, YOUTUBE_CLIENT_SECRET, YOUTUBE_REFRESH_TOKEN.
 """
@@ -102,6 +105,51 @@ def playlist_cmd(a):
     tok = access_token()
     if not all([playlist_add(tok, a.playlist, v) for v in a.videos]):
         sys.exit(1)
+
+
+def api(tok, path, body=None, method=None):
+    req = urllib.request.Request("https://www.googleapis.com/youtube/v3/" + path,
+                                 json.dumps(body).encode() if body is not None else None, method=method,
+                                 headers={"Authorization": "Bearer " + tok, "Content-Type": "application/json"})
+    with urllib.request.urlopen(req, timeout=60) as r:
+        return json.load(r)
+
+
+def list_cmd(a):
+    """Every upload of the channel: id, privacy, duration, playlists, title, description start."""
+    tok = access_token()
+    print("channel:", channel(tok))
+    up = api(tok, "channels?part=contentDetails&mine=true")["items"][0]["contentDetails"]["relatedPlaylists"]["uploads"]
+    ids = list(playlist_items(tok, up))
+    pls = {p: set(playlist_items(tok, p)) for p in a.playlists}
+    for i in range(0, len(ids), 50):
+        for v in api(tok, "videos?part=snippet,status,contentDetails&id=" + ",".join(ids[i:i + 50]))["items"]:
+            sn = v["snippet"]
+            inpl = ",".join(p for p, s in pls.items() if v["id"] in s) or "-"
+            print(f"{v['id']}  {sn['publishedAt'][:16]}  {v['status']['privacyStatus']:8} "
+                  f"{v['contentDetails']['duration']:8} pl={inpl}\n    title: {sn['title']}\n"
+                  f"    desc:  {sn['description'][:120]!r}", flush=True)
+
+
+def update_cmd(a):
+    """Replace title and/or description, keeping tags and category."""
+    tok = access_token()
+    sn = api(tok, "videos?part=snippet&id=" + a.video)["items"][0]["snippet"]
+    if a.title:
+        sn["title"] = a.title[:100]
+    if a.description_file:
+        sn["description"] = open(a.description_file).read()[:4900]
+    api(tok, "videos?part=snippet", dict(id=a.video, snippet={k: sn[k] for k in (
+        "title", "description", "tags", "categoryId", "defaultLanguage") if k in sn}), method="PUT")
+    print(f"updated {a.video}: {sn['title']}", flush=True)
+
+
+def delete_cmd(a):
+    tok = access_token()
+    for v in a.videos:
+        urllib.request.urlopen(urllib.request.Request("https://www.googleapis.com/youtube/v3/videos?id=" + v,
+                               method="DELETE", headers={"Authorization": "Bearer " + tok}), timeout=60).close()
+        print(f"deleted {v}", flush=True)
 
 
 def playlist_remove(a):
@@ -230,8 +278,17 @@ def main():
     pr = sub.add_parser("playlist-remove")
     pr.add_argument("playlist")
     pr.add_argument("videos", nargs="+")
+    ls = sub.add_parser("list")
+    ls.add_argument("playlists", nargs="*", help="playlist IDs to show membership of")
+    up = sub.add_parser("update")
+    up.add_argument("video")
+    up.add_argument("--title")
+    up.add_argument("--description-file")
+    de = sub.add_parser("delete")
+    de.add_argument("videos", nargs="+")
     a = p.parse_args()
-    {"auth": auth, "upload": upload, "playlist-add": playlist_cmd, "playlist-remove": playlist_remove}[a.cmd](a)
+    {"auth": auth, "upload": upload, "playlist-add": playlist_cmd, "playlist-remove": playlist_remove,
+     "list": list_cmd, "update": update_cmd, "delete": delete_cmd}[a.cmd](a)
 
 
 if __name__ == "__main__":
