@@ -4,13 +4,18 @@ name: youtube
 # portrait one as a Short, described with the release notes. Called by the
 # nightly run after the release; can also be run by hand for any released day.
 # Secrets: YOUTUBE_CLIENT_ID, YOUTUBE_CLIENT_SECRET, YOUTUBE_REFRESH_TOKEN
-# (see README). Privacy: repository variable YOUTUBE_PRIVACY (default public).
+# (see README). Repository variables: YOUTUBE_PRIVACY (default public),
+# YOUTUBE_PLAYLIST (playlist ID for the videos), YOUTUBE_PLAYLIST_SHORTS
+# (for the Shorts; default: YOUTUBE_PLAYLIST).
 on:
   workflow_dispatch:
     inputs:
       date:
         description: "Released day to upload, YYYY-MM-DD"
         required: true
+      videos:
+        description: "Instead of uploading: video IDs (space-separated) to add to YOUTUBE_PLAYLIST"
+        required: false
   workflow_call:
     inputs:
       date:
@@ -35,6 +40,11 @@ jobs:
       - name: Upload
         run: |
           if [ -z "$YOUTUBE_REFRESH_TOKEN" ]; then echo "YouTube secrets not set: skipping"; exit 0; fi
+          if [ -n "${{ inputs.videos }}" ]; then
+            # shellcheck disable=SC2086
+            uv run youtube.py playlist-add "${{ vars.YOUTUBE_PLAYLIST }}" ${{ inputs.videos }}
+            exit
+          fi
           gh release download "$DAY" --pattern '*.mp4' --dir videos
           when=$(date -u -d "$DAY" '+%-d %B %Y')
           # YouTube rejects < and > in descriptions; drop markdown marks
@@ -43,7 +53,8 @@ jobs:
             | sed 's/`//g; s/\*\*//g; s/[<>]//g' > yt.txt
           tags="Meteosat-12,MTG,EUMETSAT,Earth,timelapse,satellite,stars,space"
           privacy="${{ vars.YOUTUBE_PRIVACY || 'public' }}"
-          uv run youtube.py upload "videos/earth_${DAY}_4k.mp4" --privacy "$privacy" \
+          pl="${{ vars.YOUTUBE_PLAYLIST }}"; pls="${{ vars.YOUTUBE_PLAYLIST_SHORTS || vars.YOUTUBE_PLAYLIST }}"
+          uv run youtube.py upload "videos/earth_${DAY}_4k.mp4" --privacy "$privacy" ${pl:+--playlist "$pl"} \
             --title "Earth from Meteosat-12 with the real sky, $when (4K)" --description-file yt.txt --tags "$tags"
-          uv run youtube.py upload "videos/earth_${DAY}_4k_15s_vertical.mp4" --privacy "$privacy" \
+          uv run youtube.py upload "videos/earth_${DAY}_4k_15s_vertical.mp4" --privacy "$privacy" ${pls:+--playlist "$pls"} \
             --title "A day of Earth from space, $when #Shorts" --description-file yt.txt --tags "$tags"

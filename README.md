@@ -87,7 +87,9 @@ only the render and release, pass the run ID of an earlier run as `frames_from_r
 If the secrets below exist, the nightly run then uploads both videos to YouTube
 (`.github/workflows/youtube.yml`, also runnable by hand for any released day)
 (the 15 s portrait one as a Short); privacy comes from the repository variable
-`YOUTUBE_PRIVACY` (default `public`).
+`YOUTUBE_PRIVACY` (default `public`). To add them to a playlist, set the variable
+`YOUTUBE_PLAYLIST` to its ID (the `list=` part of its URL), and optionally
+`YOUTUBE_PLAYLIST_SHORTS` for the Shorts.
 
 1. In a Google Cloud project, enable the *YouTube Data API v3* and create an OAuth
    client of type *Desktop app*. Put its ID and secret in `.env` as

@@ -3,13 +3,15 @@
 
   youtube.py auth
       One-time, on your machine: opens Google's consent page in the browser
-      (scope youtube.upload) and stores the refresh token as the GitHub secret
+      (scope youtube: upload, playlists, channel name) and stores the refresh token as the GitHub secret
       YOUTUBE_REFRESH_TOKEN via `gh secret set` (it is never printed).
       Needs YOUTUBE_CLIENT_ID / YOUTUBE_CLIENT_SECRET (env or .env): an OAuth
       client of type "Desktop app" in a Google Cloud project with the
       YouTube Data API v3 enabled.
   youtube.py upload FILE --title T [--description-file F] [--tags a,b] [--privacy public]
-      Resumable upload; prints the video URL.
+      [--playlist ID]   Resumable upload; prints the video URL; adds it to the playlist.
+  youtube.py playlist-add PLAYLIST_ID VIDEO_ID [VIDEO_ID ...]
+      Add already uploaded videos to a playlist.
 
 Credentials for upload: YOUTUBE_CLIENT_ID, YOUTUBE_CLIENT_SECRET, YOUTUBE_REFRESH_TOKEN.
 """
@@ -17,8 +19,8 @@ import argparse, http.server, json, os, secrets, subprocess, sys, time, urllib.e
 import urllib.request, webbrowser
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-# upload, plus read-only to name the channel the token belongs to
-SCOPE = "https://www.googleapis.com/auth/youtube.upload https://www.googleapis.com/auth/youtube.readonly"
+# manage the channel's videos and playlists (upload alone cannot add to playlists)
+SCOPE = "https://www.googleapis.com/auth/youtube"
 AUTH = "https://accounts.google.com/o/oauth2/v2/auth"
 TOKEN = "https://oauth2.googleapis.com/token"
 UPLOAD = "https://www.googleapis.com/upload/youtube/v3/videos?uploadType=resumable&part=snippet,status"
@@ -57,6 +59,26 @@ def channel(tok):
         return "(no channel)"
     sn = items[0]["snippet"]
     return f"{sn['title']} ({sn.get('customUrl', '?')})"
+
+
+def playlist_add(tok, playlist, video):
+    body = dict(snippet=dict(playlistId=playlist, resourceId=dict(kind="youtube#video", videoId=video)))
+    req = urllib.request.Request("https://www.googleapis.com/youtube/v3/playlistItems?part=snippet",
+                                 json.dumps(body).encode(), headers={
+                                     "Authorization": "Bearer " + tok, "Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=60):
+            print(f"added {video} to playlist {playlist}", flush=True)
+    except urllib.error.HTTPError as e:                  # the upload itself succeeded: report, go on
+        print(f"could not add {video} to playlist {playlist}: HTTP {e.code} {e.read()[:400]!r}", flush=True)
+        return False
+    return True
+
+
+def playlist_cmd(a):
+    tok = access_token()
+    if not all([playlist_add(tok, a.playlist, v) for v in a.videos]):
+        sys.exit(1)
 
 
 def auth(a):
@@ -151,6 +173,8 @@ def upload(a):
                 rng = e.headers.get("Range") if e.code == 308 else None
                 sent = int(rng.split("-")[1]) + 1 if rng else 0
     print(f"https://youtu.be/{vid}", flush=True)
+    if a.playlist:
+        playlist_add(tok, a.playlist, vid)
 
 
 def main():
@@ -163,8 +187,12 @@ def main():
     u.add_argument("--description-file")
     u.add_argument("--tags")
     u.add_argument("--privacy", default="public", choices=["public", "unlisted", "private"])
+    u.add_argument("--playlist", help="playlist ID to add the video to")
+    pl = sub.add_parser("playlist-add")
+    pl.add_argument("playlist")
+    pl.add_argument("videos", nargs="+")
     a = p.parse_args()
-    {"auth": auth, "upload": upload}[a.cmd](a)
+    {"auth": auth, "upload": upload, "playlist-add": playlist_cmd}[a.cmd](a)
 
 
 if __name__ == "__main__":
