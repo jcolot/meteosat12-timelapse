@@ -123,11 +123,13 @@ def list_cmd(a):
     ids = list(playlist_items(tok, up))
     pls = {p: set(playlist_items(tok, p)) for p in a.playlists}
     for i in range(0, len(ids), 50):
-        for v in api(tok, "videos?part=snippet,status,contentDetails&id=" + ",".join(ids[i:i + 50]))["items"]:
+        for v in api(tok, "videos?part=snippet,status,contentDetails,statistics&id=" + ",".join(ids[i:i + 50]))["items"]:
             sn = v["snippet"]
             inpl = ",".join(p for p, s in pls.items() if v["id"] in s) or "-"
+            st = v.get("statistics", {})
             print(f"{v['id']}  {sn['publishedAt'][:16]}  {v['status']['privacyStatus']:8} "
-                  f"{v['contentDetails']['duration']:8} pl={inpl}\n    title: {sn['title']}\n"
+                  f"{v['contentDetails']['duration']:8} views={st.get('viewCount', '?')} likes={st.get('likeCount', '?')} "
+                  f"comments={st.get('commentCount', '?')} pl={inpl}\n    title: {sn['title']}\n"
                   f"    desc:  {sn['description'][:120]!r}", flush=True)
 
 
