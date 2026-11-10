@@ -1,4 +1,4 @@
-24 hours of Earth from Meteosat-12 (MTG-I1), one image every 10 minutes, smoothed with motion-compensated in-between frames. The night side is shown dark with city lights, and the twilight is relit with a physical atmosphere model.
+Our Blue Marble over 24 hours: Earth from Meteosat-12 (MTG-I1), 36,000 km above Africa, one image every 10 minutes, smoothed with motion-compensated in-between frames. The night side is shown dark with city lights, and the twilight is relit with a physical atmosphere model.
 
 Behind the Earth is the real sky as seen from the satellite: stars at their true positions, the Moon depending on the date, the Milky Way and the zodiacal light. They drift because the satellite turns with the Earth.
 

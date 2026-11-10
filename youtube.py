@@ -15,7 +15,7 @@
   youtube.py playlist-remove PLAYLIST_ID VIDEO_ID [VIDEO_ID ...]
       Take videos out of a playlist.
   youtube.py list [PLAYLIST_ID ...]      The channel's uploads (and playlist membership).
-  youtube.py update VIDEO_ID [--title T] [--description-file F]
+  youtube.py update VIDEO_ID [--title T] [--description-file F] [--tags a,b]
   youtube.py delete VIDEO_ID [...]
 
 Credentials for upload: YOUTUBE_CLIENT_ID, YOUTUBE_CLIENT_SECRET, YOUTUBE_REFRESH_TOKEN.
@@ -137,6 +137,8 @@ def update_cmd(a):
     sn = api(tok, "videos?part=snippet&id=" + a.video)["items"][0]["snippet"]
     if a.title:
         sn["title"] = a.title[:100]
+    if a.tags:
+        sn["tags"] = [t for t in a.tags.split(",") if t]
     if a.description_file:
         sn["description"] = open(a.description_file).read()[:4900]
     api(tok, "videos?part=snippet", dict(id=a.video, snippet={k: sn[k] for k in (
@@ -284,6 +286,7 @@ def main():
     up.add_argument("video")
     up.add_argument("--title")
     up.add_argument("--description-file")
+    up.add_argument("--tags")
     de = sub.add_parser("delete")
     de.add_argument("videos", nargs="+")
     a = p.parse_args()
