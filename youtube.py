@@ -11,7 +11,9 @@
   youtube.py upload FILE --title T [--description-file F] [--tags a,b] [--privacy public]
       [--playlist ID]   Resumable upload; prints the video URL; adds it to the playlist.
   youtube.py playlist-add PLAYLIST_ID VIDEO_ID [VIDEO_ID ...]
-      Add already uploaded videos to a playlist.
+      Add already uploaded videos to a playlist (skips those already in it).
+  youtube.py playlist-remove PLAYLIST_ID VIDEO_ID [VIDEO_ID ...]
+      Take videos out of a playlist.
 
 Credentials for upload: YOUTUBE_CLIENT_ID, YOUTUBE_CLIENT_SECRET, YOUTUBE_REFRESH_TOKEN.
 """
@@ -61,7 +63,28 @@ def channel(tok):
     return f"{sn['title']} ({sn.get('customUrl', '?')})"
 
 
+def playlist_items(tok, playlist):
+    """videoId -> playlist item id, for every video in the playlist."""
+    items, page = {}, ""
+    while True:
+        q = urllib.parse.urlencode(dict(part="snippet", playlistId=playlist, maxResults=50, pageToken=page))
+        req = urllib.request.Request("https://www.googleapis.com/youtube/v3/playlistItems?" + q,
+                                     headers={"Authorization": "Bearer " + tok})
+        with urllib.request.urlopen(req, timeout=60) as r:
+            d = json.load(r)
+        items.update({i["snippet"]["resourceId"]["videoId"]: i["id"] for i in d.get("items", [])})
+        page = d.get("nextPageToken")
+        if not page:
+            return items
+
+
 def playlist_add(tok, playlist, video):
+    try:
+        if video in playlist_items(tok, playlist):
+            print(f"{video} already in playlist {playlist}", flush=True)
+            return True
+    except urllib.error.HTTPError as e:
+        print(f"could not list playlist {playlist}: HTTP {e.code}", flush=True)
     body = dict(snippet=dict(playlistId=playlist, resourceId=dict(kind="youtube#video", videoId=video)))
     req = urllib.request.Request("https://www.googleapis.com/youtube/v3/playlistItems?part=snippet",
                                  json.dumps(body).encode(), headers={
@@ -79,6 +102,19 @@ def playlist_cmd(a):
     tok = access_token()
     if not all([playlist_add(tok, a.playlist, v) for v in a.videos]):
         sys.exit(1)
+
+
+def playlist_remove(a):
+    tok = access_token()
+    items = playlist_items(tok, a.playlist)
+    for v in a.videos:
+        if v not in items:
+            print(f"{v} not in playlist {a.playlist}", flush=True)
+            continue
+        req = urllib.request.Request("https://www.googleapis.com/youtube/v3/playlistItems?id=" + items[v],
+                                     method="DELETE", headers={"Authorization": "Bearer " + tok})
+        urllib.request.urlopen(req, timeout=60).close()
+        print(f"removed {v} from playlist {a.playlist}", flush=True)
 
 
 def auth(a):
@@ -191,8 +227,11 @@ def main():
     pl = sub.add_parser("playlist-add")
     pl.add_argument("playlist")
     pl.add_argument("videos", nargs="+")
+    pr = sub.add_parser("playlist-remove")
+    pr.add_argument("playlist")
+    pr.add_argument("videos", nargs="+")
     a = p.parse_args()
-    {"auth": auth, "upload": upload, "playlist-add": playlist_cmd}[a.cmd](a)
+    {"auth": auth, "upload": upload, "playlist-add": playlist_cmd, "playlist-remove": playlist_remove}[a.cmd](a)
 
 
 if __name__ == "__main__":

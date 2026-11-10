@@ -14,7 +14,13 @@ on:
         description: "Released day to upload, YYYY-MM-DD"
         required: true
       videos:
-        description: "Instead of uploading: video IDs (space-separated) to add to YOUTUBE_PLAYLIST"
+        description: "Instead of uploading: video IDs (space-separated) to add to the playlist below"
+        required: false
+      playlist:
+        description: "With videos: playlist ID to add them to (default YOUTUBE_PLAYLIST)"
+        required: false
+      remove_from:
+        description: "With videos: playlist ID to take them out of first"
         required: false
   workflow_call:
     inputs:
@@ -42,7 +48,11 @@ jobs:
           if [ -z "$YOUTUBE_REFRESH_TOKEN" ]; then echo "YouTube secrets not set: skipping"; exit 0; fi
           if [ -n "${{ inputs.videos }}" ]; then
             # shellcheck disable=SC2086
-            uv run youtube.py playlist-add "${{ vars.YOUTUBE_PLAYLIST }}" ${{ inputs.videos }}
+            if [ -n "${{ inputs.remove_from }}" ]; then
+              uv run youtube.py playlist-remove "${{ inputs.remove_from }}" ${{ inputs.videos }}
+            fi
+            # shellcheck disable=SC2086
+            uv run youtube.py playlist-add "${{ inputs.playlist || vars.YOUTUBE_PLAYLIST }}" ${{ inputs.videos }}
             exit
           fi
           gh release download "$DAY" --pattern '*.mp4' --dir videos
