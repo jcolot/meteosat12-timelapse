@@ -76,7 +76,9 @@ jobs:
           thumbs() {
             gh release download "$DAY" --pattern '*.mp4' --dir videos --skip-existing
             uv run --no-project --with pillow --with imageio-ffmpeg thumbnail.py "videos/earth_${DAY}_4k.mp4" thumb.jpg --date "$DAY"
-            uv run --no-project --with pillow --with imageio-ffmpeg thumbnail.py "videos/earth_${DAY}_4k_15s_vertical.mp4" thumb_short.jpg --date "$DAY"
+            if [ -f "videos/earth_${DAY}_4k_15s_vertical.mp4" ]; then
+              uv run --no-project --with pillow --with imageio-ffmpeg thumbnail.py "videos/earth_${DAY}_4k_15s_vertical.mp4" thumb_short.jpg --date "$DAY"
+            fi
           }
           if [ -n "$COMMAND" ]; then
             case "$COMMAND" in "thumbs;"*) thumbs; COMMAND=${COMMAND#thumbs;} ;; esac
