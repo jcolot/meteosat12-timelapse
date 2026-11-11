@@ -12,8 +12,8 @@ on:
     # GitHub's cron is best-effort (runs get delayed or dropped at busy times,
     # most of all on the hour): two tries off the hour; a scheduled run whose
     # day is already released does nothing
-    - cron: "37 2 * * *"
-    - cron: "13 5 * * *"
+    - cron: "41 2 * * *"
+    - cron: "17 5 * * *"
   workflow_dispatch:
     inputs:
       date:
