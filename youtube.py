@@ -9,13 +9,15 @@
       client of type "Desktop app" in a Google Cloud project with the
       YouTube Data API v3 enabled.
   youtube.py upload FILE --title T [--description-file F] [--tags a,b] [--privacy public]
-      [--playlist ID]   Resumable upload; prints the video URL; adds it to the playlist.
+      [--playlist ID] [--thumbnail F.jpg]   Resumable upload; prints the video URL; sets the
+      thumbnail; adds it to the playlist.
   youtube.py playlist-add PLAYLIST_ID VIDEO_ID [VIDEO_ID ...]
       Add already uploaded videos to a playlist (skips those already in it).
   youtube.py playlist-remove PLAYLIST_ID VIDEO_ID [VIDEO_ID ...]
       Take videos out of a playlist.
   youtube.py list [PLAYLIST_ID ...]      The channel's uploads (and playlist membership).
   youtube.py update VIDEO_ID [--title T] [--description-file F] [--tags a,b]
+  youtube.py thumbnail VIDEO_ID IMAGE.jpg   Set a custom thumbnail (see thumbnail.py).
   youtube.py delete VIDEO_ID [...]
 
 Credentials for upload: YOUTUBE_CLIENT_ID, YOUTUBE_CLIENT_SECRET, YOUTUBE_REFRESH_TOKEN.
@@ -148,6 +150,25 @@ def update_cmd(a):
     print(f"updated {a.video}: {sn['title']}", flush=True)
 
 
+def set_thumbnail(tok, video, path):
+    """Custom thumbnail (JPEG/PNG, < 2 MB); needs a verified channel. Reports errors, does not fail."""
+    req = urllib.request.Request("https://www.googleapis.com/upload/youtube/v3/thumbnails/set?videoId=" + video,
+                                 open(path, "rb").read(), headers={
+                                     "Authorization": "Bearer " + tok, "Content-Type": "image/jpeg"})
+    try:
+        urllib.request.urlopen(req, timeout=120).close()
+        print(f"thumbnail set for {video}", flush=True)
+        return True
+    except urllib.error.HTTPError as e:
+        print(f"could not set the thumbnail of {video}: HTTP {e.code} {e.read()[:400]!r}", flush=True)
+        return False
+
+
+def thumbnail_cmd(a):
+    if not set_thumbnail(access_token(), a.video, a.image):
+        sys.exit(1)
+
+
 def delete_cmd(a):
     tok = access_token()
     for v in a.videos:
@@ -261,6 +282,8 @@ def upload(a):
                 rng = e.headers.get("Range") if e.code == 308 else None
                 sent = int(rng.split("-")[1]) + 1 if rng else 0
     print(f"https://youtu.be/{vid}", flush=True)
+    if a.thumbnail:
+        set_thumbnail(tok, vid, a.thumbnail)
     if a.playlist:
         playlist_add(tok, a.playlist, vid)
 
@@ -276,6 +299,7 @@ def main():
     u.add_argument("--tags")
     u.add_argument("--privacy", default="public", choices=["public", "unlisted", "private"])
     u.add_argument("--playlist", help="playlist ID to add the video to")
+    u.add_argument("--thumbnail", help="JPEG to set as the video's thumbnail")
     pl = sub.add_parser("playlist-add")
     pl.add_argument("playlist")
     pl.add_argument("videos", nargs="+")
@@ -289,11 +313,15 @@ def main():
     up.add_argument("--title")
     up.add_argument("--description-file")
     up.add_argument("--tags")
+    th = sub.add_parser("thumbnail")
+    th.add_argument("video")
+    th.add_argument("image")
     de = sub.add_parser("delete")
     de.add_argument("videos", nargs="+")
     a = p.parse_args()
     {"auth": auth, "upload": upload, "playlist-add": playlist_cmd, "playlist-remove": playlist_remove,
-     "list": list_cmd, "update": update_cmd, "delete": delete_cmd}[a.cmd](a)
+     "list": list_cmd, "update": update_cmd, "thumbnail": thumbnail_cmd,
+     "delete": delete_cmd}[a.cmd](a)
 
 
 if __name__ == "__main__":

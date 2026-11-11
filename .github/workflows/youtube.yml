@@ -23,7 +23,7 @@ on:
         description: "With videos: playlist ID to take them out of first"
         required: false
       command:
-        description: "Instead of uploading: youtube.py arguments (list, update ID --title T --description-file yt.txt, delete ID); yt.txt is the day's description"
+        description: "Instead of uploading: youtube.py arguments (list, update ID --title T --description-file yt.txt, delete ID); yt.txt is the day's description; prefix with 'thumbs;' to build thumb.jpg / thumb_short.jpg"
         required: false
   workflow_call:
     inputs:
@@ -72,14 +72,21 @@ jobs:
           title="24 Hours of Earth from Space, with the Real Stars · $when (4K)"
           stitle="One day of Earth from space 🌍 $when #shorts"
           tags="Blue Marble,Earth from space,Meteosat-12,MTG,EUMETSAT,Earth,timelapse,satellite,stars,space"
+          # thumbnails: the noon frame with the date, from the release videos
+          thumbs() {
+            gh release download "$DAY" --pattern '*.mp4' --dir videos --skip-existing
+            uv run --no-project --with pillow thumbnail.py "videos/earth_${DAY}_4k.mp4" thumb.jpg --date "$DAY"
+            uv run --no-project --with pillow thumbnail.py "videos/earth_${DAY}_4k_15s_vertical.mp4" thumb_short.jpg --date "$DAY"
+          }
           if [ -n "$COMMAND" ]; then
+            case "$COMMAND" in "thumbs;"*) thumbs; COMMAND=${COMMAND#thumbs;} ;; esac
             eval "uv run youtube.py $COMMAND"
             exit
           fi
-          gh release download "$DAY" --pattern '*.mp4' --dir videos
+          thumbs
           privacy="${{ vars.YOUTUBE_PRIVACY || 'public' }}"
           pl="${{ vars.YOUTUBE_PLAYLIST }}"; pls="${{ vars.YOUTUBE_PLAYLIST_SHORTS || vars.YOUTUBE_PLAYLIST }}"
-          uv run youtube.py upload "videos/earth_${DAY}_4k.mp4" --privacy "$privacy" ${pl:+--playlist "$pl"} \
+          uv run youtube.py upload "videos/earth_${DAY}_4k.mp4" --privacy "$privacy" ${pl:+--playlist "$pl"} --thumbnail thumb.jpg \
             --title "$title" --description-file yt.txt --tags "$tags"
-          uv run youtube.py upload "videos/earth_${DAY}_4k_15s_vertical.mp4" --privacy "$privacy" ${pls:+--playlist "$pls"} \
+          uv run youtube.py upload "videos/earth_${DAY}_4k_15s_vertical.mp4" --privacy "$privacy" ${pls:+--playlist "$pls"} --thumbnail thumb_short.jpg \
             --title "$stitle" --description-file yt.txt --tags "$tags"
