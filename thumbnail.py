@@ -10,18 +10,16 @@ the same moment every day so videos compare at a glance) with the date.
 import argparse, datetime as dt, io, re, shutil, subprocess
 from PIL import Image, ImageDraw, ImageFont
 
-FONTS = [("/System/Library/Fonts/HelveticaNeue.ttc", 1),                # macOS, bold
-         ("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 0),  # Debian/Ubuntu
-         ("/usr/share/fonts/dejavu-sans-fonts/DejaVuSans-Bold.ttf", 0)]
+import os
+
+# Space Grotesk (SIL OFL, fonts/OFL.txt), shipped in the repo so every machine renders the same
+FONT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fonts", "SpaceGrotesk.ttf")
 
 
-def font(size):
-    for path, index in FONTS:
-        try:
-            return ImageFont.truetype(path, size, index=index)
-        except OSError:
-            pass
-    return ImageFont.load_default(size)
+def font(size, weight=700):
+    f = ImageFont.truetype(FONT, size)
+    f.set_variation_by_axes([weight])                                    # single axis: wght
+    return f
 
 
 def ffmpeg():

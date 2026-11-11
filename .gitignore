@@ -10,6 +10,8 @@
 !/assets/
 !/*.py
 !/raw/
+!/fonts/
+!/youtube_description.txt
 /raw/*
 !/raw/*.py
 
