@@ -5,9 +5,9 @@ the same moment every day so videos compare at a glance) with the date.
   thumbnail.py VIDEO OUT.jpg --date YYYY-MM-DD
 
 16:9 videos give 1280x720 (disc enlarged, date on the left); portrait videos
-720x1280 (date at the top). Needs ffmpeg and Pillow.
+720x1280 (date at the top). Needs Pillow and ffmpeg (or the imageio-ffmpeg package).
 """
-import argparse, datetime as dt, io, subprocess
+import argparse, datetime as dt, io, re, shutil, subprocess
 from PIL import Image, ImageDraw, ImageFont
 
 FONTS = [("/System/Library/Fonts/HelveticaNeue.ttc", 1),                # macOS, bold
@@ -24,11 +24,21 @@ def font(size):
     return ImageFont.load_default(size)
 
 
+def ffmpeg():
+    """ffmpeg on the PATH, else the static one of the imageio-ffmpeg package."""
+    if shutil.which("ffmpeg"):
+        return "ffmpeg"
+    import imageio_ffmpeg
+    return imageio_ffmpeg.get_ffmpeg_exe()
+
+
 def noon_frame(video):
     """The frame at the middle of the video: 12:00 UTC (videos run 00:00 to 24:00)."""
-    dur = float(subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0",
-                                video], capture_output=True, text=True, check=True).stdout)
-    png = subprocess.run(["ffmpeg", "-v", "error", "-ss", f"{dur / 2:.3f}", "-i", video, "-frames:v", "1",
+    ff = ffmpeg()
+    info = subprocess.run([ff, "-i", video], capture_output=True, text=True).stderr
+    h, m, sec = re.search(r"Duration: (\d+):(\d+):([\d.]+)", info).groups()
+    dur = int(h) * 3600 + int(m) * 60 + float(sec)
+    png = subprocess.run([ff, "-v", "error", "-ss", f"{dur / 2:.3f}", "-i", video, "-frames:v", "1",
                           "-f", "image2pipe", "-vcodec", "png", "-"], capture_output=True, check=True).stdout
     return Image.open(io.BytesIO(png)).convert("RGB")
 
