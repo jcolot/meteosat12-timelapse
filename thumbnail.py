@@ -67,15 +67,18 @@ def main():
         text(d, (36, 340), f"{day.day} {day:%b}".upper(), 80, "ls")
         text(d, (36, 430), f"{day.year}", 80, "ls")
     else:
-        # a polaroid: the thumbnail's edge is the white frame, the date handwritten on the strip
-        m, strip = 36, 250
-        pw, ph = 720 - 2 * m, 1280 - m - strip
+        # a polaroid: the thumbnail's edge is the white frame, the date handwritten on the
+        # strip. The Shorts shelf crops 9:16 thumbnails to about 2:3 (~100 px off the top and
+        # bottom at 1280): photo and date stay inside that band
+        m, safe, strip = 40, 100, 200
+        top, bottom = safe + m, 1280 - safe
+        pw, ph = 720 - 2 * m, bottom - strip - top
         ch = round(W * ph / pw)
         photo = im.crop((0, (H - ch) // 2, W, (H + ch) // 2)).resize((pw, ph), Image.LANCZOS)
         im = Image.new("RGB", (720, 1280), (246, 244, 238))
-        im.paste(photo, (m, m))
-        ImageDraw.Draw(im).text((360, m + ph + strip // 2), f"{day.day} {day:%b} {day.year}",
-                                font=font(104, 700, HAND), fill=(40, 40, 46), anchor="mm")
+        im.paste(photo, (m, top))
+        ImageDraw.Draw(im).text((360, bottom - strip // 2), f"{day.day} {day:%b} {day.year}",
+                                font=font(96, 700, HAND), fill=(40, 40, 46), anchor="mm")
     im.save(a.out, quality=90)
 
 
