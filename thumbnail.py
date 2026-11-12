@@ -5,21 +5,19 @@ the same moment every day so videos compare at a glance) with the date.
   thumbnail.py VIDEO OUT.jpg --date YYYY-MM-DD
 
 16:9 videos give 1280x720 (disc enlarged, date on the left); portrait videos
-720x1280 as a polaroid (date handwritten on the white strip). Needs Pillow and ffmpeg (or the imageio-ffmpeg package).
+720x1280 (date above the disc). Needs Pillow and ffmpeg (or the imageio-ffmpeg package).
 """
 import argparse, datetime as dt, io, re, shutil, subprocess
 from PIL import Image, ImageDraw, ImageFont
 
 import os
 
-# Space Grotesk and Caveat (SIL OFL, fonts/OFL-*.txt), shipped in the repo so every machine renders the same
-FONTS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fonts")
-FONT = os.path.join(FONTS, "SpaceGrotesk.ttf")
-HAND = os.path.join(FONTS, "Caveat.ttf")          # handwritten caption of the Shorts' polaroid
+# Space Grotesk (SIL OFL, fonts/OFL-SpaceGrotesk.txt), shipped in the repo so every machine renders the same
+FONT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fonts", "SpaceGrotesk.ttf")
 
 
-def font(size, weight=700, path=FONT):
-    f = ImageFont.truetype(path, size)
+def font(size, weight=700):
+    f = ImageFont.truetype(FONT, size)
     f.set_variation_by_axes([weight])                                    # single axis: wght
     return f
 
@@ -67,18 +65,13 @@ def main():
         text(d, (36, 340), f"{day.day} {day:%b}".upper(), 80, "ls")
         text(d, (36, 430), f"{day.year}", 80, "ls")
     else:
-        # a polaroid: the thumbnail's edge is the white frame, the date handwritten on the
-        # strip. The Shorts shelf crops 9:16 thumbnails to about 2:3 (~100 px off the top and
-        # bottom at 1280): photo and date stay inside that band
-        m, safe, strip = 40, 100, 200
-        top, bottom = safe + m, 1280 - safe
-        pw, ph = 720 - 2 * m, bottom - strip - top
-        ch = round(W * ph / pw)
-        photo = im.crop((0, (H - ch) // 2, W, (H + ch) // 2)).resize((pw, ph), Image.LANCZOS)
-        im = Image.new("RGB", (720, 1280), (246, 244, 238))
-        im.paste(photo, (m, top))
-        ImageDraw.Draw(im).text((360, bottom - strip // 2), f"{day.day} {day:%b} {day.year}",
-                                font=font(96, 700, HAND), fill=(40, 40, 46), anchor="mm")
+        # the full frame on its black sky, date as on the 16:9 thumbnails, in the
+        # black above the disc. The Shorts shelf crops 9:16 thumbnails to about 2:3
+        # (~100 px off the top and bottom at 1280): the date stays below that
+        im = im.resize((720, 1280), Image.LANCZOS)
+        d = ImageDraw.Draw(im)
+        text(d, (36, 200), f"{day.day} {day:%b}".upper(), 80, "ls")
+        text(d, (36, 290), f"{day.year}", 80, "ls")
     im.save(a.out, quality=90)
 
 

@@ -3,3 +3,5 @@ Our Blue Marble over 24 hours: Earth from Meteosat-12 (MTG-I1), 36,000 km above 
 Behind the Earth is the real sky as seen from the satellite: stars at their true positions, the Moon depending on the date, the Milky Way and the zodiacal light. They drift because the satellite turns with the Earth.
 
 Positions are exact. Brightness is enhanced: a camera exposed for the sunlit Earth would show a black sky.
+
+No sound, by design: just the planet turning.
