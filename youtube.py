@@ -282,10 +282,25 @@ def upload(a):
                 rng = e.headers.get("Range") if e.code == 308 else None
                 sent = int(rng.split("-")[1]) + 1 if rng else 0
     print(f"https://youtu.be/{vid}", flush=True)
-    if a.thumbnail:
-        set_thumbnail(tok, vid, a.thumbnail)
     if a.playlist:
         playlist_add(tok, a.playlist, vid)
+    if a.thumbnail:
+        # set during processing, the thumbnail can be overridden by YouTube's own
+        # frame on some surfaces (the Shorts shelf): wait until it is processed
+        wait_processed(tok, vid)
+        set_thumbnail(tok, vid, a.thumbnail)
+
+
+def wait_processed(tok, vid, timeout=1200):
+    t0 = time.time()
+    while time.time() - t0 < timeout:
+        items = api(tok, "videos?part=processingDetails&id=" + vid)["items"]
+        st = items[0]["processingDetails"]["processingStatus"] if items else "?"
+        if st != "processing":
+            print(f"processing: {st} after {time.time() - t0:.0f} s", flush=True)
+            return
+        time.sleep(20)
+    print(f"still processing after {timeout} s: setting the thumbnail anyway", flush=True)
 
 
 def main():
