@@ -197,6 +197,7 @@ def render(a):
     day = day_of(a)
     wd = work_dir(day)
     st = json.load(open(os.path.join(wd, "status.json")))
+    ensure_mask()                  # EUMETView days hand on no mask: it is computed from the geometry
     os.makedirs(os.path.join(HERE, "out"), exist_ok=True)
     suffix, args = CUTS[a.cut]
     name = f"earth_{day.isoformat()}_4k{suffix}.mp4"
