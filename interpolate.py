@@ -253,11 +253,11 @@ def credit_overlay(W, H, text, opacity=0.7):
 
 
 def time_label(W, H, when, opacity=0.7):
-    """Small "HH:MM UTC" bottom left, on the baseline of the credit's last
+    """Small "8 Nov 2026 · HH:MM UTC" bottom left, on the baseline of the credit's last
     line, same font and opacity: (x, y, alpha (h, w, 1)) of its box."""
     from PIL import ImageDraw
     font, margin = credit_font(W, H)
-    text = when.strftime("%H:%M UTC")
+    text = f"{when.day} {when:%b %Y}  \u00b7  {when:%H:%M} UTC"      # as the titles: 8 Nov 2026
     asc, desc = font.getmetrics()
     box = Image.new("L", (round(font.getlength(text)) + 4, asc + desc + 4), 0)
     ImageDraw.Draw(box).text((2, 2 + asc), text, font=font, fill=255, anchor="ls")
