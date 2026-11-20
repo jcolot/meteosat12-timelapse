@@ -70,7 +70,10 @@ uv run daily.py render --cut full --date 2026-11-08 --device mps
 `.github/workflows/daily.yml` renders yesterday (02:41 UTC, retried at 05:17 if GitHub dropped the first run) and publishes both videos
 as a release tagged with the date. The raw slots are split over 12 parallel jobs
 (download, build frames, delete, about 12 slots each), then merged, rendered (60 s
-and 15 s portrait in parallel) and released. It needs two repository secrets:
+and 15 s portrait in parallel) and released. Each raw job stops trying after 150 min;
+if fewer than 130 of the 145 frames came through (a Data Store outage), the merge step
+downloads the whole day from EUMETView instead (one source per day, so the look stays
+consistent) and the release notes name the source. It needs two repository secrets:
 
 ```bash
 grep '^KEY=' .env | cut -d= -f2- | gh secret set EUMETSAT_KEY
