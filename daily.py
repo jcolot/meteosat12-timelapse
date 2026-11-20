@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
 """One day, end to end, for scheduled runs (GitHub Actions) or by hand.
 
-  daily.py raw --shard K --shards N [--date ...]
+  daily.py raw --shard K --shards N [--date ...] [--budget-min 150]
       Frames from raw FCI data (EUMETSAT Data Store, EUMETSAT_KEY/SECRET):
       every N-th 10-min slot starting at K, downloaded, turned into
       geocolour/fog/ir frames in work/<day>/ and deleted (needs the "raw" extra).
-  daily.py gather [--date ...]
+  daily.py gather [--date ...] [--fallback-min M]
       After the shards are merged into work/<day>/: fills missing slots,
-      writes work/<day>/status.json.
+      writes work/<day>/status.json. With --fallback-min, a day with too few
+      raw frames (Data Store outage) is downloaded whole from EUMETView instead,
+      within M minutes (one source per day keeps the look consistent).
   daily.py download [--date YYYY-MM-DD] [--budget-min 330]
       Alternative source: GeoColour + infrared night layers from EUMETView
       (repeated passes until complete or out of time budget), then gather.
@@ -28,8 +30,8 @@ LAYERS = {                       # folder -> (EUMETView layer, required)
     "fog": ("mtg_fd:rgb_fog", False),
 }
 SLOTS = 145                      # 00:00 .. 24:00 every 10 min
-MIN_GEOCOLOUR = 130
-ATTEMPTS = 6                     # raw: per slot (1 GB downloads are sometimes cut short)              # below this the day is not rendered
+MIN_GEOCOLOUR = 130              # below this the day is not rendered (or, raw, falls back to EUMETView)
+ATTEMPTS = 6                     # raw: per slot (1 GB downloads are sometimes cut short)
 MASK = os.path.join(HERE, "data", "mask.png")
 CUTS = {                         # name -> (file suffix, interpolate.py args)
     "full": ("", ["--canvas", "3840x2160"]),
@@ -129,11 +131,19 @@ def raw(a):
     t0 = dt.datetime.combine(day, dt.time())
     slots = [t0 + dt.timedelta(minutes=10 * i) for i in range(SLOTS) if i % a.shards == a.shard]
     built, failed = 0, []
+    deadline = time.time() + a.budget_min * 60            # a failing Data Store leaves time for the fallback
     for k, t in enumerate(slots):
+        if time.time() > deadline:
+            failed += [s.strftime("%Y%m%d_%H%M") + ".jpg" for s in slots[k:]]
+            print(f"time budget spent: {len(slots) - k} slot(s) not tried", flush=True)
+            break
         name = t.strftime("%Y%m%d_%H%M") + ".jpg"
         if all(os.path.exists(os.path.join(wd, sub, name)) for sub in LAYERS):
             continue
         for attempt in range(ATTEMPTS):
+            if attempt and time.time() > deadline:
+                failed.append(name)
+                break
             try:
                 ids = [p for p in datastore.search(datastore.FDHSI, t.strftime("%Y-%m-%dT%H:%M:00Z"),
                                                    (t + dt.timedelta(minutes=9, seconds=59)).strftime("%Y-%m-%dT%H:%M:%SZ"))
@@ -166,7 +176,16 @@ def raw(a):
 
 def gather(a):
     day = day_of(a)
-    gather_dir(work_dir(day), day, "raw FCI Level 1c (EUMETSAT Data Store)")
+    wd = work_dir(day)
+    n = count(os.path.join(wd, "geocolour"))
+    if n < MIN_GEOCOLOUR and a.fallback_min:
+        print(f"only {n} raw GeoColour frames: the whole day from EUMETView instead", flush=True)
+        if os.path.isdir(wd):
+            __import__("shutil").rmtree(wd)
+        a.budget_min = a.fallback_min
+        download(a)
+        return
+    gather_dir(wd, day, "raw FCI Level 1c (EUMETSAT Data Store)")
 
 
 def gather_dir(wd, day, source):
@@ -235,7 +254,9 @@ def main():
     p.add_argument("--shard", type=int, default=0)
     p.add_argument("--shards", type=int, default=1)
     p.add_argument("--date", help="YYYY-MM-DD (default: yesterday, UTC)")
-    p.add_argument("--budget-min", type=float, default=330, help="download: time budget (min)")
+    p.add_argument("--budget-min", type=float, default=330, help="download / raw: time budget (min)")
+    p.add_argument("--fallback-min", type=float, default=0,
+                   help="gather: EUMETView time budget (min) if the raw frames fall short (0: no fallback)")
     p.add_argument("--passes", type=int, default=8, help="download: max passes per layer")
     p.add_argument("--cut", choices=list(CUTS), default="full")
     p.add_argument("--device", default="cpu", choices=["cpu", "mps"])

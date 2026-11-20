@@ -6,7 +6,9 @@ name: daily
 # Frames come from raw FCI Level 1c data (EUMETSAT Data Store; secrets
 # EUMETSAT_KEY and EUMETSAT_SECRET), split over parallel shards so each job
 # stays well inside the 6 h limit and its ~14 GB disk (each 1 GB product is
-# deleted once turned into frames). EUMETView remains available as a source.
+# deleted once turned into frames), within a time budget: if the Data Store
+# fails and too few frames come through, gather takes the whole day from
+# EUMETView instead. EUMETView can also be chosen as the source by hand.
 on:
   schedule:
     # GitHub's cron is best-effort (runs get delayed or dropped at busy times,
@@ -82,7 +84,7 @@ jobs:
             data/milkyway_2020_8k.exr
           key: static-v2
       - run: uv sync --extra raw && uv run fetch_data.py
-      - run: uv run daily.py raw --date ${{ needs.plan.outputs.day }} --shard ${{ matrix.shard }} --shards 12
+      - run: uv run daily.py raw --date ${{ needs.plan.outputs.day }} --shard ${{ matrix.shard }} --shards 12 --budget-min 150
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -129,7 +131,7 @@ jobs:
       - run: uv sync
       - run: |
           if [ "${{ needs.plan.outputs.source }}" = raw ]; then
-            uv run daily.py gather --date ${{ needs.plan.outputs.day }}
+            uv run daily.py gather --date ${{ needs.plan.outputs.day }} --fallback-min 150
           fi
           test -f work/$(echo ${{ needs.plan.outputs.day }} | tr -d -)/status.json
       - uses: actions/upload-artifact@v4
