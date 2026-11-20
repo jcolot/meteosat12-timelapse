@@ -206,25 +206,27 @@ CREDIT_FONTS = ["/System/Library/Fonts/HelveticaNeue.ttc",                 # mac
                 "/usr/share/fonts/dejavu-sans-fonts/DejaVuSans.ttf"]    # Fedora
 
 
+def credit_font(W, H):
+    """Font and margin of the on-screen credit (30 px, 54 px margin at 2160)."""
+    from PIL import ImageFont
+    short = min(W, H)
+    size = max(12, round(short / 72))
+    for path in CREDIT_FONTS:
+        try:
+            return ImageFont.truetype(path, size), round(short / 40)
+        except OSError:
+            pass
+    return ImageFont.load_default(size), round(short / 40)
+
+
 def credit_overlay(W, H, text, opacity=0.7):
     """(H, W, 1) alpha of a small credit, bottom right; wrapped at its
     " · " separators into right-aligned lines when it is wider than the
     canvas (portrait formats)."""
-    from PIL import ImageDraw, ImageFont
-    short = min(W, H)
-    size = max(12, round(short / 72))                 # 30 px at 2160
-    font = None
-    for path in CREDIT_FONTS:
-        try:
-            font = ImageFont.truetype(path, size)
-            break
-        except OSError:
-            pass
-    if font is None:
-        font = ImageFont.load_default(size)
+    from PIL import ImageDraw
+    font, margin = credit_font(W, H)
     layer = Image.new("L", (W, H), 0)
     d = ImageDraw.Draw(layer)
-    margin = round(short / 40)
     width = lambda s: d.textlength(s, font=font)
     # fewest lines that fit, then the split whose longest line is shortest
     import itertools, re
@@ -248,6 +250,26 @@ def credit_overlay(W, H, text, opacity=0.7):
         d.text((W - margin - width(line), y), line, font=font, fill=255, anchor="ls")
         y += step
     return np.asarray(layer, np.float32)[..., None] / 255.0 * opacity
+
+
+def time_label(W, H, when, opacity=0.7):
+    """Small "HH:MM UTC" bottom left, on the baseline of the credit's last
+    line, same font and opacity: (x, y, alpha (h, w, 1)) of its box."""
+    from PIL import ImageDraw
+    font, margin = credit_font(W, H)
+    text = when.strftime("%H:%M UTC")
+    asc, desc = font.getmetrics()
+    box = Image.new("L", (round(font.getlength(text)) + 4, asc + desc + 4), 0)
+    ImageDraw.Draw(box).text((2, 2 + asc), text, font=font, fill=255, anchor="ls")
+    return margin - 2, H - margin - desc - asc - 2, np.asarray(box, np.float32)[..., None] / 255.0 * opacity
+
+
+def stamp(frame, label):
+    """Blend a time_label into a uint8 frame, in place (as the credit: 0.92 white)."""
+    x, y, a = label
+    r = frame[y:y + a.shape[0], x:x + a.shape[1]].astype(np.float32)
+    frame[y:y + a.shape[0], x:x + a.shape[1]] = (r * (1 - a) + 0.92 * 255 * a + 0.5).astype(np.uint8)
+    return frame
 
 
 SKY_T = os.path.join(sf.DATA, "sky_transmittance_2048.npy")
@@ -330,7 +352,12 @@ def interval(job, first=0, stride=1):
     # --stride: keep only every n-th output frame (global index first + k),
     # for faster-than-real-time cuts rendered with their own, longer shutter
     ks = [k for k in ks if (first + k) % stride == 0]
+    # the time of the last real satellite frame, held through the in-between ones
+    clock = G["credit"] is not None and look.get("clock", True)
+    label = time_label(g["W"], g["H"], t_a) if clock else None
     for k in ks:
+        if clock and k == steps:                       # the closing real frame of the video
+            label = time_label(g["W"], g["H"], t_b)
         s = k / steps
         earth = a.astype(np.float32) if k == 0 else b.astype(np.float32) if k == steps else ip.between(a, b, v, s)
         when = t_a + (t_b - t_a) * s + off
@@ -352,7 +379,8 @@ def interval(job, first=0, stride=1):
                 back = Fg.backdrop_tone(mw, zl)
             ins = (1 - s) * ins_a + s * ins_b
             el, an = Fg.relight(np.asarray(earth, np.float32), sky.sun_dir(when), ins, cloud)
-            yield Fg.compose(acc, back, el, an)
+            f = Fg.compose(acc, back, el, an)
+            yield stamp(np.array(f, np.uint8), label) if label is not None else f
             continue
         if G["strip"] is not None:
             stars = ss.render(G["strip"], sky, when, g["ppr"], shutter_min=shutter, **kw)
@@ -382,7 +410,8 @@ def interval(job, first=0, stride=1):
             frame = stars * (1 - alpha) + place(earth / 255.0, g) * alpha
         if G["credit"] is not None:
             frame = frame * (1 - G["credit"]) + 0.92 * G["credit"]
-        yield (np.clip(frame, 0, 1) * 255 + 0.5).astype(np.uint8)
+        f = (np.clip(frame, 0, 1) * 255 + 0.5).astype(np.uint8)
+        yield stamp(f, label) if label is not None else f
 
 
 # --- Main ------------------------------------------------------------------------------
@@ -426,6 +455,8 @@ def main():
     p.add_argument("--credit", help="on-screen credit line (default: EUMETSAT attribution for "
                    "the frames' year, plus star/ephemeris sources)")
     p.add_argument("--no-credit", action="store_true", help="no on-screen credit (metadata is still written)")
+    p.add_argument("--no-clock", action="store_true",
+                   help="no UTC time bottom left (the time of the last real satellite frame)")
     p.add_argument("--body-shutter", type=float, default=1.0,
                    help="Moon/planet motion blur relative to the stars' (e.g. 0.25 keeps the crescent crisp in fast cuts)")
     p.add_argument("--stride", type=int, default=1,
@@ -511,6 +542,7 @@ def main():
     look = dict(mode=mode, k_air=a.k_air, cos_pow=a.cos_pow, night_cap=a.night_cap,
                 night_base=a.night_base, lights_gain=a.lights_gain, shutter=a.shutter, cache=a.atm_cache,
                 milkyway=a.milkyway, zodiacal=a.zodiacal, limb_fade=not a.no_limb_fade,
+                clock=not a.no_clock,
                 sky_strength=a.sky_strength, device=a.device,
                 night_fog=a.night_fog, night_ir=a.night_ir)
     if mode == "relight":
