@@ -83,6 +83,12 @@ jobs:
             data/de421.bsp
             data/milkyway_2020_8k.exr
           key: static-v2
+      # pyspectral's Rayleigh tables and response functions, otherwise fetched
+      # from zenodo.org by every shard every night (it refuses some: HTTP 403)
+      - uses: actions/cache@v4
+        with:
+          path: ~/.local/share/pyspectral
+          key: pyspectral-0.14
       - run: uv sync --extra raw && uv run fetch_data.py
       - run: uv run daily.py raw --date ${{ needs.plan.outputs.day }} --shard ${{ matrix.shard }} --shards 12 --budget-min 150
       - uses: actions/upload-artifact@v4
